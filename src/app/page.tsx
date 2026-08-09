@@ -10,6 +10,7 @@ import { ActiveRulesList } from "@/components/ActiveRulesList";
 import { CustomPanelChat } from "@/components/CustomPanelChat";
 import { CustomPanelsList } from "@/components/CustomPanelsList";
 import { RecommendationsRunner } from "@/components/RecommendationsRunner";
+import { InvestigationsPanel } from "@/components/InvestigationsPanel";
 
 export default function DashboardPage() {
   return (
@@ -36,6 +37,7 @@ export default function DashboardPage() {
         </div>
 
         <ActiveRulesList />
+        <InvestigationsPanel />
 
         <section className="space-y-3">
           <h2 className="section-heading">Ask for a custom panel</h2>
