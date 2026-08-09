@@ -63,13 +63,28 @@ async function recentTracesAcrossServices(limit = 10) {
   return results.slice(0, limit);
 }
 
+/**
+ * Extracts the real "body" field from an OTel-shaped JSON log line before
+ * truncating — truncating the raw line first (as this used to do) cuts the
+ * JSON off mid-object, so it never parses and the UI falls back to showing
+ * mangled raw JSON. Parse first, truncate the human-readable message after.
+ */
+function extractLogBody(rawLine) {
+  try {
+    const parsed = JSON.parse(rawLine);
+    return typeof parsed.body === "string" ? parsed.body : rawLine;
+  } catch {
+    return rawLine;
+  }
+}
+
 async function recentErrorLogs(limit = 10) {
   const result = await lgtm.queryLogs('{level="ERROR"}', 15, limit);
   const streams = result.data?.result || [];
   const lines = [];
   for (const s of streams) {
     for (const [ts, line] of s.values || []) {
-      lines.push({ service_name: s.stream?.service_name, ts: Number(ts) / 1e9, line: line.slice(0, 300) });
+      lines.push({ service_name: s.stream?.service_name, ts: Number(ts) / 1e9, line: extractLogBody(line).slice(0, 300) });
     }
   }
   lines.sort((a, b) => b.ts - a.ts);

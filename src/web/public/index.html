@@ -17,6 +17,14 @@
     --danger: #DC2626;
     --ok: #16A34A;
     --radius: 0.5rem;
+    /* Data-viz tokens — validated default palette (dataviz skill), brand
+       orange stays reserved for UI chrome/CTAs, never used to encode data. */
+    --seq-1: #2a78d6;        /* sequential blue, one hue, magnitude bars */
+    --seq-1-track: #cde2fb;  /* lighter step of the same ramp — the unfilled track */
+    --status-good: #0ca30c;
+    --status-warning: #fab219;
+    --status-critical: #d03b3b;
+    --chart-gridline: #e1e0d9;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -26,6 +34,9 @@
       --muted: #8B98A9;
       --border: #24303F;
       --card: #12181F;
+      --seq-1: #3987e5;
+      --seq-1-track: #184f95;
+      --chart-gridline: #2c2c2a;
     }
   }
   * { box-sizing: border-box; }
@@ -92,18 +103,30 @@
   .edge-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
   .edge-arrow { color: var(--muted); }
   .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.6rem; }
-  .stat-tile { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem; }
-  .stat-tile .value { font-size: 1.6rem; font-weight: 700; margin-top: 0.2rem; }
+  .stat-tile { background: var(--card); border: 1px solid var(--border); border-top: 2px solid var(--seq-1); border-radius: var(--radius); padding: 0.9rem; }
+  .stat-tile .value { font-size: 1.6rem; font-weight: 700; margin-top: 0.2rem; font-variant-numeric: normal; }
   .stat-tile .label { font-size: 0.75rem; color: var(--muted); }
   .panel-chat { display: flex; gap: 0.4rem; margin-bottom: 0.8rem; }
   .panel-chat input { flex: 1; font: inherit; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); }
   details summary { cursor: pointer; color: var(--muted); font-size: 0.8rem; }
-  .obs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.8rem; }
-  .obs-list { list-style: none; margin: 0; padding: 0; font-size: 0.82rem; }
-  .obs-list li { display: flex; justify-content: space-between; padding: 0.25rem 0; border-bottom: 1px solid var(--border); }
-  .obs-list li:last-child { border-bottom: none; }
-  .health-ok { color: var(--ok); font-weight: 600; }
-  .health-bad { color: var(--danger); font-weight: 600; }
+  .obs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.8rem; }
+  /* Bar mark spec: track is a lighter step of the same ramp, fill is the
+     sequential hue, 4px rounded data-end (square at the baseline — the left
+     edge here since bars grow rightward from a shared left baseline),
+     capped at 18px thick (under the 24px ceiling), value labeled at the tip. */
+  .bar-row { display: grid; grid-template-columns: 96px 1fr 48px; align-items: center; gap: 0.6rem; padding: 0.32rem 0; }
+  .bar-row .bar-label { font-size: 0.78rem; color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-track { height: 18px; background: var(--seq-1-track); border-radius: 0 4px 4px 0; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--seq-1); border-radius: 0 4px 4px 0; min-width: 2px; }
+  .bar-row .bar-value { font-size: 0.78rem; color: var(--foreground); text-align: right; font-variant-numeric: tabular-nums; }
+  .status-pill { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; font-weight: 600; padding: 0.25rem 0.6rem; border-radius: 999px; }
+  .status-pill.good { background: color-mix(in srgb, var(--status-good) 14%, transparent); color: var(--status-good); }
+  .status-pill.critical { background: color-mix(in srgb, var(--status-critical) 14%, transparent); color: var(--status-critical); }
+  .status-pill::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .log-row { padding: 0.4rem 0; border-bottom: 1px solid var(--border); font-size: 0.78rem; }
+  .log-row:last-child { border-bottom: none; }
+  .log-row .log-meta { display: flex; gap: 0.5rem; color: var(--muted); font-size: 0.7rem; margin-bottom: 0.15rem; }
+  .log-row .log-body { color: var(--foreground); font-family: ui-monospace, monospace; }
   .chat-window { max-height: 360px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); padding: 0.75rem; margin-bottom: 0.6rem; }
   .chat-msg { margin-bottom: 0.6rem; font-size: 0.85rem; }
   .chat-msg .who { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
@@ -146,7 +169,7 @@
       </div>
       <div class="card" style="grid-column: 1 / -1;">
         <div style="font-weight:600; margin-bottom:0.4rem;">Recent error logs</div>
-        <div class="evidence" id="obs-logs" style="max-height:150px; overflow-y:auto;"></div>
+        <div id="obs-logs" style="max-height:220px; overflow-y:auto;"></div>
       </div>
     </div>
   </section>
@@ -159,6 +182,7 @@
       <button class="primary" id="chat-send-btn">Send</button>
       <button id="chat-reset-btn">Reset</button>
     </div>
+    <div class="stat-grid" id="kept-panels" style="margin-top:0.8rem;"></div>
   </section>
 
   <section id="business-impact-section">
@@ -195,15 +219,6 @@
     </div>
   </section>
 
-  <section id="custom-panels-section">
-    <h2>Custom panels</h2>
-    <div class="panel-chat">
-      <input type="text" id="panel-request-input" placeholder="Ask for a panel — e.g. 'show me payment call rate'" />
-      <button class="primary" id="panel-draft-btn">Draft</button>
-    </div>
-    <div id="panel-draft-preview"></div>
-    <div class="stat-grid" id="kept-panels"></div>
-  </section>
 </main>
 <div id="toast"></div>
 <script>
@@ -232,19 +247,49 @@ async function load() {
   loadObservability();
 }
 
+function barRows(items, keyFn, valueFn, labelFn, unit) {
+  if (!items.length) return '<div class="empty">No data</div>';
+  const max = Math.max(...items.map(valueFn), 0.001);
+  return items.map(item => {
+    const v = valueFn(item);
+    const pct = Math.max(2, Math.min(100, (v / max) * 100));
+    return `
+      <div class="bar-row">
+        <div class="bar-label" title="${escapeHtml(labelFn(item))}">${escapeHtml(labelFn(item))}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+        <div class="bar-value">${fmt(v)}${unit}</div>
+      </div>
+    `;
+  }).join('');
+}
+
 async function loadObservability() {
   try {
     const o = await api('/api/dashboard/observability');
-    document.getElementById('obs-cpu').innerHTML = o.cpu.map(c => `<li><span>${escapeHtml(c.container_name)}</span><span>${c.cpu_utilization_ratio.toFixed(2)}%</span></li>`).join('') || '<li>No data</li>';
-    document.getElementById('obs-memory').innerHTML = o.memory.map(c => `<li><span>${escapeHtml(c.container_name)}</span><span>${c.memory_percent.toFixed(1)}%</span></li>`).join('') || '<li>No data</li>';
-    const bad = (o.health.down_scrape_targets.length + o.health.elevated_error_rate.length) > 0;
-    document.getElementById('obs-health').innerHTML = bad
-      ? `<div class="health-bad">${o.health.down_scrape_targets.length} down, ${o.health.elevated_error_rate.length} elevated error rate</div>` +
-        o.health.elevated_error_rate.map(e => `<div class="evidence">${escapeHtml(e.service_name)}: ${escapeHtml(e.reason)}</div>`).join('') +
-        o.health.down_scrape_targets.map(d => `<div class="evidence">${escapeHtml(d.job)}: ${escapeHtml(d.reason)}</div>`).join('')
-      : '<div class="health-ok">All healthy</div>';
-    document.getElementById('obs-traces').innerHTML = o.traces.map(t => `<li><span>${escapeHtml(t.service_name)}</span><span style="font-family:ui-monospace,monospace; font-size:0.75rem;">${escapeHtml(t.trace_id.slice(0,12))}...</span></li>`).join('') || '<li>No traces</li>';
-    document.getElementById('obs-logs').textContent = o.logs.length ? o.logs.map(l => `[${escapeHtml(l.service_name||'?')}] ${escapeHtml(l.line)}`).join('\n') : 'No recent error logs.';
+    document.getElementById('obs-cpu').innerHTML = barRows(o.cpu, c => c.container_name, c => c.cpu_utilization_ratio, c => c.container_name, '%');
+    document.getElementById('obs-memory').innerHTML = barRows(o.memory, c => c.container_name, c => c.memory_percent, c => c.container_name, '%');
+
+    const badCount = o.health.down_scrape_targets.length + o.health.elevated_error_rate.length;
+    document.getElementById('obs-health').innerHTML = badCount === 0
+      ? '<span class="status-pill good">All healthy</span>'
+      : `<span class="status-pill critical">${badCount} issue(s)</span>` +
+        o.health.elevated_error_rate.map(e => `<div class="evidence" style="margin-top:0.5rem;">${escapeHtml(e.service_name)}: ${escapeHtml(e.reason)}</div>`).join('') +
+        o.health.down_scrape_targets.map(d => `<div class="evidence" style="margin-top:0.5rem;">${escapeHtml(d.job)}: ${escapeHtml(d.reason)}</div>`).join('');
+
+    document.getElementById('obs-traces').innerHTML = o.traces.length ? o.traces.map(t => `<li><span>${escapeHtml(t.service_name)}</span><span style="font-family:ui-monospace,monospace; font-size:0.75rem; color:var(--muted);">${escapeHtml(t.trace_id.slice(0,12))}&hellip;</span></li>`).join('') : '<li>No traces</li>';
+
+    const logsEl = document.getElementById('obs-logs');
+    if (!o.logs.length) {
+      logsEl.innerHTML = '<div class="empty">No recent error logs.</div>';
+    } else {
+      logsEl.innerHTML = o.logs.map(l => {
+        const time = l.ts ? new Date(l.ts * 1000).toLocaleTimeString() : '';
+        return `<div class="log-row">
+          <div class="log-meta"><span>${escapeHtml(time)}</span><span>${escapeHtml(l.service_name || 'unknown')}</span></div>
+          <div class="log-body">${escapeHtml(l.line)}</div>
+        </div>`;
+      }).join('');
+    }
   } catch (e) {
     console.error('observability load failed', e);
   }
@@ -409,49 +454,10 @@ async function askAboutCurrentTrace() {
 document.getElementById('trace-ask-btn').addEventListener('click', askAboutCurrentTrace);
 document.getElementById('trace-question-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') askAboutCurrentTrace(); });
 
-let currentDraftSpec = null;
-
-async function draftPanel() {
-  const input = document.getElementById('panel-request-input');
-  if (!input.value) return;
-  const preview = document.getElementById('panel-draft-preview');
-  preview.innerHTML = '<div class="empty">Drafting...</div>';
-  try {
-    const result = await api('/api/dashboard/custom-panel/draft', { method: 'POST', body: JSON.stringify({ request: input.value }) });
-    currentDraftSpec = result.spec;
-    if (result.spec.cannot_fulfill_reason) {
-      preview.innerHTML = `<div class="card"><div class="rationale">${escapeHtml(result.spec.cannot_fulfill_reason)}</div></div>`;
-      return;
-    }
-    const val = result.data.kind === 'stat' ? `${fmt(result.data.value)} ${escapeHtml(result.spec.unit || '')}` : `${(result.data.series||[]).length} series point(s)`;
-    preview.innerHTML = `
-      <div class="card">
-        <div class="row"><b>${escapeHtml(result.spec.title)}</b><span style="color:var(--muted); font-size:0.8rem;">${escapeHtml(result.spec.category)} / ${escapeHtml(result.spec.service_name)}</span></div>
-        <div class="rationale">Preview: <b>${val}</b></div>
-        ${result.data.error ? `<div class="evidence">${escapeHtml(result.data.error)}</div>` : ''}
-        <div class="actions">
-          <button class="primary" id="panel-keep-btn">Keep it</button>
-          <button id="panel-discard-btn">Discard</button>
-        </div>
-      </div>
-    `;
-    document.getElementById('panel-keep-btn').addEventListener('click', async () => {
-      await api('/api/dashboard/custom-panel/keep', { method: 'POST', body: JSON.stringify({ spec: currentDraftSpec }) });
-      preview.innerHTML = '';
-      input.value = '';
-      toast('Panel kept');
-      load();
-    });
-    document.getElementById('panel-discard-btn').addEventListener('click', () => {
-      preview.innerHTML = '';
-      input.value = '';
-    });
-  } catch (e) {
-    preview.innerHTML = `<div class="card"><div class="rationale">Error: ${escapeHtml(e.message)}</div></div>`;
-  }
-}
-document.getElementById('panel-draft-btn').addEventListener('click', draftPanel);
-document.getElementById('panel-request-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') draftPanel(); });
+// Manual panel-drafting form removed — the "Ask AI" chatbot's
+// create_dashboard_panel tool covers the same need conversationally
+// (POST /api/dashboard/custom-panel/draft|keep still exist and work, just
+// no longer have a dedicated form; the chatbot is the one interface now).
 
 function renderKeptPanels(layout) {
   const el = document.getElementById('kept-panels');
