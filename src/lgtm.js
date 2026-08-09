@@ -92,7 +92,7 @@ function otlpAttr(attributes, key) {
  * a trace ID alone tells you nothing; the actual error message inside one
  * of its spans is the real evidence.
  */
-async function getTraceDetail(traceId) {
+async function fetchTraceSpans(traceId) {
   const url = `${TEMPO_URL}/api/traces/${traceId}`;
   const body = await get(url);
   const spans = [];
@@ -101,15 +101,35 @@ async function getTraceDetail(traceId) {
     for (const scope of batch.scopeSpans || []) {
       for (const span of scope.spans || []) {
         spans.push({
+          span_id: span.spanId,
+          parent_span_id: span.parentSpanId || null,
           service_name: serviceName,
           span_name: span.name,
           status_code: span.status?.code || "STATUS_CODE_UNSET",
           status_message: span.status?.message || null,
+          start_ns: Number(span.startTimeUnixNano),
+          end_ns: Number(span.endTimeUnixNano),
           duration_ms: (Number(span.endTimeUnixNano) - Number(span.startTimeUnixNano)) / 1e6,
         });
       }
     }
   }
+  return spans;
+}
+
+/**
+ * Full span list including parent/child span IDs — the raw material for
+ * building a real cross-service dependency graph (which service called
+ * which, and how long it took), as opposed to getTraceDetail's distilled
+ * error-only view.
+ */
+async function getTraceGraph(traceId) {
+  const spans = await fetchTraceSpans(traceId);
+  return { trace_id: traceId, spans };
+}
+
+async function getTraceDetail(traceId) {
+  const spans = await fetchTraceSpans(traceId);
   const errorSpans = spans.filter((s) => s.status_code === "STATUS_CODE_ERROR");
   return {
     trace_id: traceId,
@@ -160,5 +180,6 @@ module.exports = {
   searchTraces,
   searchTracesRange,
   getTraceDetail,
+  getTraceGraph,
   discoverServices,
 };

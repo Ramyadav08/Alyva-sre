@@ -7,6 +7,11 @@ const onboarding = require("../skills/onboarding/run");
 const { runPipeline } = require("../skills/alert-rules/run");
 const { proposeRetune } = require("../skills/alert-rules/tuning");
 const detection = require("../skills/detection/run");
+const { proposePR } = require("../skills/detection/proposals");
+const { buildServiceGraph } = require("../dashboard/serviceGraph");
+const { buildBusinessImpactSummary } = require("../dashboard/businessImpact");
+const { buildRecommendations } = require("../dashboard/recommendations");
+const customPanel = require("../dashboard/customPanel");
 
 const app = express();
 app.use(express.json());
@@ -15,6 +20,17 @@ app.use(express.static(path.join(__dirname, "public")));
 const PORT = process.env.PORT || 4310;
 const RETUNE_INTERVAL_MS = Number(process.env.RETUNE_INTERVAL_MS || 10 * 60 * 1000); // 10 min, agency: runs on its own
 const DETECTION_SCAN_INTERVAL_MS = Number(process.env.DETECTION_SCAN_INTERVAL_MS || 2 * 60 * 1000); // 2 min
+const SERVICE_GRAPH_INTERVAL_MS = Number(process.env.SERVICE_GRAPH_INTERVAL_MS || 3 * 60 * 1000); // 3 min
+const ONBOARDING_REFRESH_INTERVAL_MS = Number(process.env.ONBOARDING_REFRESH_INTERVAL_MS || 2 * 60 * 1000); // 2 min
+
+// Service graph takes ~5s to compute (samples real traces across every
+// service) — cached and refreshed on an interval rather than recomputed on
+// every dashboard poll.
+let cachedServiceGraph = { edges: [], excluded: [], traces_sampled: 0, services_sampled: 0, computed_at: null };
+async function refreshServiceGraph() {
+  const result = await buildServiceGraph({});
+  cachedServiceGraph = { ...result, computed_at: new Date().toISOString() };
+}
 
 function recordOutcome(rule, action, extra = {}) {
   const outcomes = store.load("outcomes", []);
@@ -74,6 +90,63 @@ app.post("/api/onboarding/profile/:service/confirm", (req, res) => {
   try {
     const p = onboarding.confirmProfile(req.params.service);
     res.json({ ok: true, profile: p });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// ---- Dashboard ----
+
+app.get("/api/dashboard/state", (req, res) => {
+  res.json({
+    businessImpact: buildBusinessImpactSummary(),
+    serviceGraph: cachedServiceGraph,
+    recommendations: buildRecommendations({ limit: 10 }),
+    layout: customPanel.getLayout(),
+  });
+});
+
+app.post("/api/dashboard/custom-panel/draft", async (req, res) => {
+  try {
+    const result = await customPanel.draftAndPreview(req.body.request);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post("/api/dashboard/custom-panel/keep", (req, res) => {
+  try {
+    const layout = customPanel.keepPanel(req.body.spec);
+    res.json({ ok: true, layout });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.post("/api/dashboard/custom-panel/:id/remove", (req, res) => {
+  const layout = customPanel.removePanel(req.params.id);
+  res.json({ ok: true, layout });
+});
+
+app.post("/api/dashboard/custom-panel/:id/refresh", async (req, res) => {
+  const layout = customPanel.getLayout();
+  const panel = layout.find((p) => p.id === req.params.id);
+  if (!panel) return res.status(404).json({ ok: false, error: "No such panel" });
+  const data = await customPanel.executePanelSpec(panel);
+  res.json({ ok: true, data });
+});
+
+// Ownership: opens a real PR for a code fix. Only runs on explicit human
+// trigger for a specific investigation — never on a schedule (house rule
+// #6, "ownership never self-executes").
+app.post("/api/investigations/:id/propose-pr", async (req, res) => {
+  try {
+    const investigations = detection.loadInvestigations();
+    const inv = investigations.find((i) => i.id === req.params.id);
+    if (!inv) return res.status(404).json({ ok: false, error: "No such investigation" });
+    const result = proposePR(inv, { dryRun: req.body?.dryRun !== false });
+    res.json({ ok: true, ...result });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message });
   }
@@ -238,10 +311,31 @@ app.listen(PORT, async () => {
   } catch (err) {
     console.error("Initial detection scan failed:", err.message);
   }
+  try {
+    await refreshServiceGraph();
+    console.log(`Service graph: ${cachedServiceGraph.edges.length} edge(s) from ${cachedServiceGraph.traces_sampled} sampled traces.`);
+  } catch (err) {
+    console.error("Initial service graph build failed:", err.message);
+  }
   setInterval(() => {
     retuneSweep().catch((err) => console.error("Retune sweep failed:", err.message));
   }, RETUNE_INTERVAL_MS);
   setInterval(() => {
     detection.scanForNewInvestigations({ log: console.log }).catch((err) => console.error("Detection scan failed:", err.message));
   }, DETECTION_SCAN_INTERVAL_MS);
+  setInterval(() => {
+    refreshServiceGraph().catch((err) => console.error("Service graph refresh failed:", err.message));
+  }, SERVICE_GRAPH_INTERVAL_MS);
+  // Agency gap found via a real walkthrough test: answering an onboarding
+  // question only updated the Project Profile on the NEXT full pipeline
+  // run, which previously only happened at startup or a manual /api/run —
+  // meaning the dashboard silently went stale between answers. Chains into
+  // Alert Rules too, since a newly-resolved service should get drafted for
+  // without a human having to trigger anything.
+  setInterval(() => {
+    onboarding
+      .refreshOnboarding({ log: () => {} })
+      .then(() => runPipeline({ hoursBack: 24, log: () => {} }))
+      .catch((err) => console.error("Onboarding refresh failed:", err.message));
+  }, ONBOARDING_REFRESH_INTERVAL_MS);
 });

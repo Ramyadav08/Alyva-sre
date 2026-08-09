@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Alyva-sre — Alert Rules</title>
+<title>Alyva-sre — Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root {
@@ -44,16 +44,24 @@
   header img { height: 28px; }
   header h1 { font-size: 1rem; font-weight: 600; margin: 0; }
   header .sub { color: var(--muted); font-size: 0.8rem; }
-  main { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+  header a.nav { margin-left: auto; color: var(--primary); font-size: 0.85rem; text-decoration: none; }
+  main { max-width: 1000px; margin: 0 auto; padding: 1.5rem; }
   section { margin-bottom: 2rem; }
   section h2 {
     font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em;
     color: var(--muted); font-weight: 600; margin: 0 0 0.75rem;
+    display: flex; align-items: center; justify-content: space-between;
   }
   .card {
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 1rem; margin-bottom: 0.6rem;
   }
+  .headline-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1.25rem; font-size: 1rem; font-weight: 600;
+  }
+  .headline-card.impact { border-left: 4px solid var(--danger); }
+  .headline-card.no-impact { border-left: 4px solid var(--ok); color: var(--muted); font-weight: 400; }
   .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
   .svc { font-weight: 600; }
   .tag {
@@ -70,7 +78,6 @@
     overflow-x: auto; white-space: pre-wrap; word-break: break-all;
   }
   .rationale { margin-top: 0.4rem; font-size: 0.85rem; }
-  .question { margin-top: 0.4rem; font-size: 0.85rem; color: var(--primary); }
   .actions { display: flex; gap: 0.4rem; margin-top: 0.6rem; flex-wrap: wrap; }
   button {
     font: inherit; padding: 0.35rem 0.8rem; border-radius: 6px; border: 1px solid var(--border);
@@ -79,13 +86,18 @@
   button.primary { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
   button.danger { color: var(--danger); border-color: var(--danger); }
   button:hover { opacity: 0.85; }
-  input[type=number] { width: 90px; font: inherit; padding: 0.3rem; border-radius: 6px; border: 1px solid var(--border); background: var(--background); color: var(--foreground); }
   .empty { color: var(--muted); font-style: italic; padding: 0.5rem 0; }
-  .verdict { font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 4px; }
-  .verdict.acceptable, .verdict.never_fired_in_window { background: #DCFCE7; color: #166534; }
-  .verdict.likely_noisy, .verdict.frequent_but_corroborated { background: #FEF3C7; color: #92400E; }
-  .verdict.no_historical_data, .verdict.untestable, .verdict.query_failed { background: var(--accent); color: var(--muted); }
-  .options { display: flex; gap: 0.4rem; margin-top: 0.5rem; flex-wrap: wrap; }
+  .edge-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .edge-table th { text-align: left; color: var(--muted); font-weight: 500; font-size: 0.75rem; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); }
+  .edge-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
+  .edge-arrow { color: var(--muted); }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.6rem; }
+  .stat-tile { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem; }
+  .stat-tile .value { font-size: 1.6rem; font-weight: 700; margin-top: 0.2rem; }
+  .stat-tile .label { font-size: 0.75rem; color: var(--muted); }
+  .panel-chat { display: flex; gap: 0.4rem; margin-bottom: 0.8rem; }
+  .panel-chat input { flex: 1; font: inherit; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); }
+  details summary { cursor: pointer; color: var(--muted); font-size: 0.8rem; }
   #toast {
     position: fixed; bottom: 1rem; right: 1rem; background: var(--foreground); color: var(--background);
     padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.85rem; opacity: 0; transition: opacity 0.2s;
@@ -97,33 +109,34 @@
   <img src="/logo.svg" alt="" onerror="this.style.display='none'" />
   <div>
     <h1>Alyva-sre</h1>
-    <div class="sub">Onboarding + Alert Rules + Detection &amp; RCA skills — review &amp; approve</div>
+    <div class="sub">AI-native SRE dashboard</div>
   </div>
+  <a href="/review.html" class="nav">Review &amp; approve &rarr;</a>
 </header>
 <main>
-  <section id="investigations-section">
-    <h2>Detection &amp; RCA — investigations</h2>
-    <div id="investigations"></div>
+  <section id="business-impact-section">
+    <h2>Business impact</h2>
+    <div id="business-impact"></div>
   </section>
-  <section id="questions-section">
-    <h2>Onboarding — pending questions</h2>
-    <div id="questions"></div>
+
+  <section id="latency-section">
+    <h2>Top inter-service latency <span id="latency-meta" style="text-transform:none; font-weight:400;"></span></h2>
+    <div id="latency"></div>
   </section>
-  <section id="profiles-section">
-    <h2>Onboarding — service profiles</h2>
-    <div id="profiles"></div>
+
+  <section id="recommendations-section">
+    <h2>Recommendations</h2>
+    <div id="recommendations"></div>
   </section>
-  <section id="review-section">
-    <h2>Alert Rules — ready for review</h2>
-    <div id="ready"></div>
-  </section>
-  <section id="needsinput-section">
-    <h2>Alert Rules — needs human input</h2>
-    <div id="needsinput"></div>
-  </section>
-  <section id="approved-section">
-    <h2>Alert Rules — approved</h2>
-    <div id="approved"></div>
+
+  <section id="custom-panels-section">
+    <h2>Custom panels</h2>
+    <div class="panel-chat">
+      <input type="text" id="panel-request-input" placeholder="Ask for a panel — e.g. 'show me payment call rate'" />
+      <button class="primary" id="panel-draft-btn">Draft</button>
+    </div>
+    <div id="panel-draft-preview"></div>
+    <div class="stat-grid" id="kept-panels"></div>
   </section>
 </main>
 <div id="toast"></div>
@@ -133,250 +146,164 @@ function toast(msg) {
   t.textContent = msg; t.style.opacity = 1;
   setTimeout(() => t.style.opacity = 0, 2200);
 }
-
-function tierTag(c) {
-  return c ? `<span class="tag ${c}">${c}</span>` : '';
-}
-
-function evidenceBlock(rule) {
-  const lines = [];
-  if (rule.baseline_snapshot) {
-    const b = rule.baseline_snapshot;
-    lines.push(`baseline (${b.window || ''}): p99=${fmt(b.latency_p99_ms)}ms p50=${fmt(b.latency_p50_ms)}ms err=${fmt(b.error_rate_fraction)} logs=${fmt(b.log_error_lines_per_min)}/min`);
-  }
-  if (rule.backtest) {
-    const bt = rule.backtest;
-    lines.push(`backtest (${bt.hours_back}h): ${bt.samples_above_threshold ?? '?'}/${bt.total_samples ?? '?'} samples above threshold (${bt.fraction_time_above_threshold != null ? (bt.fraction_time_above_threshold*100).toFixed(1)+'%' : 'n/a'})${bt.corroborated_fraction != null ? ', ' + (bt.corroborated_fraction*100).toFixed(0)+'% corroborated by other signals' : ''}`);
-    if (bt.query) lines.push(bt.query);
-  }
-  return lines.length ? `<div class="evidence">${lines.map(escapeHtml).join('\n')}</div>` : '';
-}
-
-function fmt(n) { return n == null ? 'n/a' : (Math.round(n*1000)/1000); }
 function escapeHtml(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function fmt(n) { return n == null ? 'n/a' : (Math.round(n*1000)/1000); }
+function tierTag(c) { return c ? `<span class="tag ${c}">${c}</span>` : ''; }
 
-async function api(path, opts) {
-  const res = await fetch(path, { headers: { 'content-type': 'application/json' }, ...opts });
+async function api(url, opts) {
+  const res = await fetch(url, { headers: { 'content-type': 'application/json' }, ...opts });
   const json = await res.json();
   if (!res.ok || json.ok === false) throw new Error(json.error || 'request failed');
   return json;
 }
 
 async function load() {
-  const state = await api('/api/state');
-  renderInvestigations(state.investigations || []);
-  renderQuestions(state.pendingOnboardingQuestions || []);
-  renderProfiles(state.profiles || []);
-  const rules = state.rules || [];
-  renderReady(rules.filter(r => r.status === 'pending_review'));
-  renderNeedsInput(rules.filter(r => r.status === 'needs_input'));
-  renderApproved(rules.filter(r => r.status === 'approved'));
+  const state = await api('/api/dashboard/state');
+  renderBusinessImpact(state.businessImpact);
+  renderLatency(state.serviceGraph);
+  renderRecommendations(state.recommendations);
+  renderKeptPanels(state.layout || []);
 }
 
-function renderInvestigations(invs) {
-  const el = document.getElementById('investigations');
-  if (!invs.length) { el.innerHTML = '<div class="empty">No investigations yet — nothing has breached a live threshold.</div>'; return; }
-  const sorted = [...invs].sort((a, b) => (a.status === 'resolved') - (b.status === 'resolved'));
-  el.innerHTML = sorted.map(inv => {
-    const r = inv.report || {};
-    const skeptic = inv.skeptic_review;
-    return `
-    <div class="card" data-inv="${inv.id}">
-      <div class="row">
-        <div><span class="svc">${escapeHtml(inv.service_name)}</span>
-          <span style="color:var(--muted)"> / ${escapeHtml(inv.signal_type)}</span></div>
-        <span class="verdict ${inv.status === 'resolved' ? 'acceptable' : (inv.converged ? 'frequent_but_corroborated' : 'likely_noisy')}">${escapeHtml(inv.status)}${inv.converged === false ? ' (not converged)' : ''}</span>
+function renderBusinessImpact(bi) {
+  const el = document.getElementById('business-impact');
+  if (!bi.has_active_impact) {
+    el.innerHTML = `<div class="headline-card no-impact">${escapeHtml(bi.headline)}</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="headline-card impact">${escapeHtml(bi.headline)}</div>` +
+    bi.items.map(i => `
+      <div class="card">
+        <div class="row"><span class="svc">${escapeHtml(i.service_name)}</span> ${tierTag(i.criticality)}</div>
+        <div class="rationale">${escapeHtml(i.headline)}</div>
+        <div class="evidence">impact: ${escapeHtml(i.business_impact)}</div>
       </div>
-      <div class="rationale"><b>${escapeHtml(r.headline || 'No headline yet')}</b></div>
-      ${r.confidence ? `<div style="font-size:0.8rem; color:var(--muted); margin-top:0.2rem;">confidence: ${escapeHtml(r.confidence)}${r.code_fix_suggested ? ' · code fix suggested' : ''}</div>` : ''}
-      ${skeptic?.contradicts_investigator ? `<div class="question">⚠ Skeptic objects: ${escapeHtml(skeptic.objection || skeptic.unstated_assumption || 'independent read disagrees')}</div>` : ''}
-      <details style="margin-top:0.5rem;">
-        <summary style="cursor:pointer; color:var(--muted); font-size:0.85rem;">Full evidence trail (${inv.ledger?.length || 0} tool calls)</summary>
-        <div class="rationale" style="margin-top:0.5rem;"><b>Hypothesis:</b> ${escapeHtml(r.hypothesis || '')}</div>
-        <div class="rationale"><b>Business impact:</b> ${escapeHtml(r.business_impact_note || 'unknown')}</div>
-        <div class="rationale"><b>Next steps:</b><ul style="margin:0.3rem 0 0 1.2rem;">${(r.next_steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ul></div>
-        ${skeptic ? `<div class="evidence" style="margin-top:0.5rem;">Skeptic's independent read: ${escapeHtml(skeptic.independent_hypothesis || '')}</div>` : ''}
-        <div class="evidence">${(inv.ledger || []).map(e => `${e.tool}(${JSON.stringify(e.args)}) -> ${JSON.stringify(e.result).slice(0, 300)}`).join('\n')}</div>
-      </details>
-      ${inv.status !== 'resolved' ? `
-        <div class="actions" style="margin-top:0.6rem;">
-          <input type="text" class="followup-input" data-inv="${inv.id}" placeholder="Ask a follow-up — e.g. 'why didn't you check X?'" style="flex:1; min-width:280px; font:inherit; padding:0.35rem; border-radius:6px; border:1px solid var(--border); background:var(--background); color:var(--foreground);" />
-          <button class="ask-followup-btn" data-inv="${inv.id}">Ask</button>
-          <button class="primary resolve-btn" data-inv="${inv.id}">Resolve</button>
-        </div>
-      ` : inv.root_cause_tag ? `<div class="evidence" style="margin-top:0.5rem;">tagged: ${escapeHtml(inv.root_cause_tag)}</div>` : ''}
-    </div>
-  `;
-  }).join('');
-
-  el.querySelectorAll('.ask-followup-btn').forEach(btn => btn.addEventListener('click', async () => {
-    const input = el.querySelector(`.followup-input[data-inv="${btn.dataset.inv}"]`);
-    if (!input.value) return;
-    try {
-      await api(`/api/investigations/${btn.dataset.inv}/followup`, { method: 'POST', body: JSON.stringify({ question: input.value }) });
-      toast('Follow-up answered');
-      load();
-    } catch (e) { toast('Error: ' + e.message); }
-  }));
-  el.querySelectorAll('.resolve-btn').forEach(btn => btn.addEventListener('click', async () => {
-    const tag = prompt('Root-cause tag (short label, e.g. "product_catalog_feature_flag") — leave blank if not resolving to a known recurring cause:', '');
-    try {
-      await api(`/api/investigations/${btn.dataset.inv}/resolve`, { method: 'POST', body: JSON.stringify({ root_cause_tag: tag || null }) });
-      toast('Investigation resolved');
-      load();
-    } catch (e) { toast('Error: ' + e.message); }
-  }));
+    `).join('');
 }
 
-function renderQuestions(qs) {
-  const el = document.getElementById('questions');
-  if (!qs.length) { el.innerHTML = '<div class="empty">None right now.</div>'; return; }
-  el.innerHTML = qs.map(q => `
+function renderLatency(graph) {
+  const el = document.getElementById('latency');
+  const meta = document.getElementById('latency-meta');
+  const edges = graph.edges || [];
+  meta.textContent = graph.computed_at ? `(${graph.traces_sampled} traces sampled, updated ${new Date(graph.computed_at).toLocaleTimeString()})` : '';
+  if (!edges.length) { el.innerHTML = '<div class="empty">No cross-service edges found yet.</div>'; return; }
+
+  const top = edges.slice(0, 5);
+  const rest = edges.slice(5);
+  const rowsHtml = (list) => list.map(e => `
+    <tr>
+      <td>${escapeHtml(e.source)} <span class="edge-arrow">&rarr;</span> ${escapeHtml(e.target)}</td>
+      <td>${e.avg_latency_ms.toFixed(2)}ms</td>
+      <td>${e.p99_latency_ms.toFixed(2)}ms</td>
+      <td>${e.call_count}</td>
+    </tr>
+  `).join('');
+
+  el.innerHTML = `
+    <table class="edge-table">
+      <thead><tr><th>Edge</th><th>Avg latency</th><th>p99</th><th>Calls sampled</th></tr></thead>
+      <tbody>${rowsHtml(top)}</tbody>
+    </table>
+    ${rest.length ? `<details style="margin-top:0.5rem;"><summary>Show ${rest.length} more edge(s)</summary>
+      <table class="edge-table" style="margin-top:0.5rem;"><tbody>${rowsHtml(rest)}</tbody></table></details>` : ''}
+    ${(graph.excluded || []).length ? `<details style="margin-top:0.5rem;"><summary>${graph.excluded.length} edge(s) excluded from ranking</summary>
+      <div class="evidence">${graph.excluded.map(e => `${e.source} -> ${e.target}: ${e.excluded_reason}`).join('\n')}</div></details>` : ''}
+  `;
+}
+
+function renderRecommendations(rec) {
+  const el = document.getElementById('recommendations');
+  if (!rec.recommendations.length) { el.innerHTML = '<div class="empty">No recommendations yet — none come from a real investigation until one runs.</div>'; return; }
+  el.innerHTML = rec.recommendations.map(r => `
     <div class="card">
-      <div class="svc">${escapeHtml(q.service)} <span style="color:var(--muted); font-weight:400;">/ ${escapeHtml(q.type)}</span></div>
-      <div class="rationale">${escapeHtml(q.question)}</div>
-      <div class="evidence">${escapeHtml(q.evidence)}</div>
-      ${q.free_text
-        ? `<div class="options">
-             <input type="text" class="free-text-input" data-qid="${q.id}" placeholder="Type your answer, or 'unknown'" style="flex:1; min-width:260px; font:inherit; padding:0.35rem; border-radius:6px; border:1px solid var(--border); background:var(--background); color:var(--foreground);" />
-             <button class="primary submit-text-btn" data-qid="${q.id}">Submit</button>
-           </div>`
-        : `<div class="options">
-             ${q.options.map(o => `<button data-qid="${q.id}" data-answer="${o}" class="answer-btn">${o}</button>`).join('')}
-           </div>`
-      }
+      <div class="row">
+        <span class="svc">${escapeHtml(r.service_name)}</span>
+        <span style="font-size:0.75rem; color:var(--muted);">${escapeHtml(r.confidence || '')} confidence</span>
+      </div>
+      <div class="rationale">${escapeHtml(r.recommendation)}${r.is_code_fix ? ' <span class="tag critical">code fix</span>' : ''}</div>
+      <div class="evidence">from investigation ${escapeHtml(r.investigation_id)}: ${escapeHtml(r.evidence_headline)}</div>
     </div>
   `).join('');
-  el.querySelectorAll('.answer-btn').forEach(btn => btn.addEventListener('click', () => submitAnswer(btn.dataset.qid, btn.dataset.answer)));
-  el.querySelectorAll('.submit-text-btn').forEach(btn => btn.addEventListener('click', () => {
-    const input = el.querySelector(`.free-text-input[data-qid="${btn.dataset.qid}"]`);
-    submitAnswer(btn.dataset.qid, input.value || 'unknown');
-  }));
 }
 
-async function submitAnswer(qid, answer) {
+let currentDraftSpec = null;
+
+async function draftPanel() {
+  const input = document.getElementById('panel-request-input');
+  if (!input.value) return;
+  const preview = document.getElementById('panel-draft-preview');
+  preview.innerHTML = '<div class="empty">Drafting...</div>';
   try {
-    await api(`/api/onboarding/questions/${qid}/answer`, { method: 'POST', body: JSON.stringify({ answer }) });
-    toast(`Answered: ${answer}`);
-    load();
-  } catch (e) { toast('Error: ' + e.message); }
-}
-
-function renderProfiles(profiles) {
-  const el = document.getElementById('profiles');
-  if (!profiles.length) { el.innerHTML = '<div class="empty">No services discovered yet.</div>'; return; }
-  el.innerHTML = profiles.map(p => `
-    <div class="card">
-      <div class="row">
-        <div><span class="svc">${escapeHtml(p.service_name)}</span> ${tierTag(p.service_criticality)}
-          <span style="color:var(--muted)"> (${escapeHtml(p.criticality_source || 'unresolved')})</span></div>
-        <span class="verdict ${p.status === 'confirmed' ? 'acceptable' : 'no_historical_data'}">${escapeHtml(p.status)}</span>
-      </div>
-      <div class="rationale">
-        business impact: ${p.business_impact?.status === 'provided' ? escapeHtml(p.business_impact.detail) : '<i style="color:var(--muted)">unknown, awaiting input</i>'}
-      </div>
-      <div class="evidence">p99=${fmt(p.snapshot?.latency_p99_ms)}ms err=${fmt(p.snapshot?.error_rate_fraction)} calls/s=${fmt(p.snapshot?.call_rate_per_sec)}</div>
-      ${p.status !== 'confirmed' ? `<div class="actions"><button class="primary confirm-profile-btn" data-service="${p.service_name}">Confirm profile</button></div>` : ''}
-    </div>
-  `).join('');
-  el.querySelectorAll('.confirm-profile-btn').forEach(btn => btn.addEventListener('click', async () => {
-    try {
-      await api(`/api/onboarding/profile/${btn.dataset.service}/confirm`, { method: 'POST', body: JSON.stringify({}) });
-      toast('Profile confirmed');
-      load();
-    } catch (e) { toast('Error: ' + e.message); }
-  }));
-}
-
-function ruleCard(r, actionsHtml) {
-  return `
-    <div class="card" data-rule="${r.id}">
-      <div class="row">
-        <div>
-          <span class="svc">${escapeHtml(r.service_name)}</span> ${tierTag(r.criticality)}
-          <span style="color:var(--muted)"> / ${escapeHtml(r.signal_type)}</span>
+    const result = await api('/api/dashboard/custom-panel/draft', { method: 'POST', body: JSON.stringify({ request: input.value }) });
+    currentDraftSpec = result.spec;
+    if (result.spec.cannot_fulfill_reason) {
+      preview.innerHTML = `<div class="card"><div class="rationale">${escapeHtml(result.spec.cannot_fulfill_reason)}</div></div>`;
+      return;
+    }
+    const val = result.data.kind === 'stat' ? `${fmt(result.data.value)} ${escapeHtml(result.spec.unit || '')}` : `${(result.data.series||[]).length} series point(s)`;
+    preview.innerHTML = `
+      <div class="card">
+        <div class="row"><b>${escapeHtml(result.spec.title)}</b><span style="color:var(--muted); font-size:0.8rem;">${escapeHtml(result.spec.category)} / ${escapeHtml(result.spec.service_name)}</span></div>
+        <div class="rationale">Preview: <b>${val}</b></div>
+        ${result.data.error ? `<div class="evidence">${escapeHtml(result.data.error)}</div>` : ''}
+        <div class="actions">
+          <button class="primary" id="panel-keep-btn">Keep it</button>
+          <button id="panel-discard-btn">Discard</button>
         </div>
-        ${r.backtest && r.backtest.verdict ? `<span class="verdict ${r.backtest.verdict}">${r.backtest.verdict}</span>` : ''}
       </div>
-      <div class="rationale">
-        ${r.threshold != null ? `<b>${escapeHtml(r.operator || 'gt')} ${fmt(r.threshold)}${escapeHtml(r.threshold_unit||'')}</b> over ${r.window_minutes || '?'}m — ` : ''}
-        ${escapeHtml(r.rationale || '')}
-      </div>
-      ${r.clarifying_question ? `<div class="question">${escapeHtml(r.clarifying_question)}</div>` : ''}
-      ${r.open_question ? `<div class="question">${escapeHtml(r.open_question)}</div>` : ''}
-      ${evidenceBlock(r)}
-      ${actionsHtml || ''}
-    </div>
-  `;
+    `;
+    document.getElementById('panel-keep-btn').addEventListener('click', async () => {
+      await api('/api/dashboard/custom-panel/keep', { method: 'POST', body: JSON.stringify({ spec: currentDraftSpec }) });
+      preview.innerHTML = '';
+      input.value = '';
+      toast('Panel kept');
+      load();
+    });
+    document.getElementById('panel-discard-btn').addEventListener('click', () => {
+      preview.innerHTML = '';
+      input.value = '';
+    });
+  } catch (e) {
+    preview.innerHTML = `<div class="card"><div class="rationale">Error: ${escapeHtml(e.message)}</div></div>`;
+  }
 }
+document.getElementById('panel-draft-btn').addEventListener('click', draftPanel);
+document.getElementById('panel-request-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') draftPanel(); });
 
-function renderReady(rules) {
-  const el = document.getElementById('ready');
-  if (!rules.length) { el.innerHTML = '<div class="empty">Nothing drafted yet — run the pipeline.</div>'; return; }
-  el.innerHTML = rules.map(r => ruleCard(r, `
-    <div class="actions">
-      <button class="primary approve-btn" data-id="${r.id}">Approve</button>
-      <button class="edit-btn" data-id="${r.id}" data-threshold="${r.threshold}">Edit threshold</button>
-      <button class="danger reject-btn" data-id="${r.id}">Reject</button>
-    </div>
-  `)).join('');
-  wireActions(el);
-}
-
-function renderNeedsInput(rules) {
-  const el = document.getElementById('needsinput');
-  if (!rules.length) { el.innerHTML = '<div class="empty">None right now.</div>'; return; }
-  el.innerHTML = rules.map(r => ruleCard(r, `
-    <div class="actions">
-      <button class="approve-btn" data-id="${r.id}">Approve as-is</button>
-      <button class="edit-btn" data-id="${r.id}" data-threshold="${r.threshold || 0}">Set threshold &amp; approve</button>
-      <button class="danger reject-btn" data-id="${r.id}">Reject</button>
-    </div>
-  `)).join('');
-  wireActions(el);
-}
-
-function renderApproved(rules) {
-  const el = document.getElementById('approved');
-  if (!rules.length) { el.innerHTML = '<div class="empty">None approved yet.</div>'; return; }
-  el.innerHTML = rules.map(r => ruleCard(r, r.retune_proposal ? `
-    <div class="card" style="background:var(--accent); margin-top:0.5rem;">
-      <b>Retune proposal:</b> ${fmt(r.threshold)} → ${fmt(r.retune_proposal.new_threshold)} — ${escapeHtml(r.retune_proposal.rationale || '')}
+function renderKeptPanels(layout) {
+  const el = document.getElementById('kept-panels');
+  if (!layout.length) { el.innerHTML = '<div class="empty">No custom panels kept yet.</div>'; return; }
+  el.innerHTML = layout.map(p => `
+    <div class="stat-tile" data-panel="${p.id}">
+      <div class="label">${escapeHtml(p.title)}</div>
+      <div class="value" id="panel-value-${p.id}">…</div>
       <div class="actions">
-        <button class="primary apply-retune-btn" data-id="${r.id}">Apply</button>
-        <button class="danger reject-retune-btn" data-id="${r.id}">Reject</button>
+        <button data-panel="${p.id}" class="refresh-panel-btn">Refresh</button>
+        <button data-panel="${p.id}" class="danger remove-panel-btn">Remove</button>
       </div>
     </div>
-  ` : `<div class="actions"><button class="retune-check-btn" data-id="${r.id}">Check for drift</button></div>`)).join('');
-  wireActions(el);
-}
-
-function wireActions(el) {
-  el.querySelectorAll('.approve-btn').forEach(b => b.addEventListener('click', () => act(`/api/rules/${b.dataset.id}/approve`, {})));
-  el.querySelectorAll('.reject-btn').forEach(b => b.addEventListener('click', () => act(`/api/rules/${b.dataset.id}/reject`, {})));
-  el.querySelectorAll('.edit-btn').forEach(b => b.addEventListener('click', () => {
-    const v = prompt('New threshold value:', b.dataset.threshold);
-    if (v === null) return;
-    act(`/api/rules/${b.dataset.id}/edit`, { threshold: Number(v) });
-  }));
-  el.querySelectorAll('.retune-check-btn').forEach(b => b.addEventListener('click', () => act(`/api/rules/${b.dataset.id}/retune-check`, { hoursBack: 24 }, 'Checked')));
-  el.querySelectorAll('.apply-retune-btn').forEach(b => b.addEventListener('click', () => act(`/api/rules/${b.dataset.id}/apply-retune`, {})));
-  el.querySelectorAll('.reject-retune-btn').forEach(b => b.addEventListener('click', () => {
-    const note = prompt('Why reject this retune proposal? (optional)', '');
-    act(`/api/rules/${b.dataset.id}/reject-retune`, { note });
-  }));
-}
-
-async function act(url, body, label) {
-  try {
-    await api(url, { method: 'POST', body: JSON.stringify(body) });
-    toast(label || 'Done');
+  `).join('');
+  layout.forEach(p => refreshPanelValue(p.id));
+  el.querySelectorAll('.refresh-panel-btn').forEach(b => b.addEventListener('click', () => refreshPanelValue(b.dataset.panel)));
+  el.querySelectorAll('.remove-panel-btn').forEach(b => b.addEventListener('click', async () => {
+    await api(`/api/dashboard/custom-panel/${b.dataset.panel}/remove`, { method: 'POST', body: JSON.stringify({}) });
     load();
-  } catch (e) { toast('Error: ' + e.message); }
+  }));
+}
+
+async function refreshPanelValue(panelId) {
+  const el = document.getElementById(`panel-value-${panelId}`);
+  if (!el) return;
+  try {
+    const result = await api(`/api/dashboard/custom-panel/${panelId}/refresh`, { method: 'POST', body: JSON.stringify({}) });
+    el.textContent = result.data.kind === 'stat' ? fmt(result.data.value) : `${(result.data.series||[]).length} pts`;
+  } catch (e) {
+    el.textContent = 'error';
+  }
 }
 
 load();
-setInterval(load, 15000);
+setInterval(load, 20000);
 </script>
 </body>
 </html>
