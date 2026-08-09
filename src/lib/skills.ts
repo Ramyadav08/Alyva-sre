@@ -4,17 +4,28 @@
  * `skills/alerting.md` are written in the same shape as the hackathon's own
  * `.claude/skills/hackathon-judge/SKILL.md` (frontmatter, procedure,
  * guardrails, a "Lessons learned" log) and are read fresh into the LLM's
- * system prompt on every reasoning call for that skill. `appendLesson`
- * writes a short, evidence-cited line to that same file after a real
- * review decision or noise-check outcome — the file's own growth (and its
- * git history in this repo) *is* the audit trail for how the agent's
- * judgment evolved. This is what makes malleability a persisted, diffable
- * artifact instead of a vibe.
+ * system prompt on every reasoning call for that skill.
+ *
+ * The learning mechanism itself is adapted from a real, mature reference —
+ * transilienceai/communitytools' skill-update/skill-prune pair — rather
+ * than a blind append log. Their four-gate promotion test (generalizable /
+ * material improvement / not already captured / minimal footprint) and
+ * skill-prune's "contradicted by newer content" signal map directly onto
+ * what a naive append-everything version of this was missing: it would
+ * have logged every routine "approved exactly as drafted" decision
+ * forever, which carries no new information, and never removed a lesson
+ * superseded by a later one about the same service. Same design
+ * philosophy already used in tuning.ts's deterministic candidateThreshold
+ * and directional guard — promotion decisions are pure code, never left
+ * to an LLM's judgment call, so a run can't claim a promotion it didn't
+ * actually earn.
  */
-import { readFile, appendFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const SKILLS_DIR = path.join(process.cwd(), "skills");
+const LESSONS_HEADING = "## Lessons learned";
+const MAX_LESSONS_PER_SKILL = 25; // gate 4 (minimal footprint) — cap, not unbounded growth
 
 export type SkillName = "onboarding" | "alerting";
 
@@ -28,24 +39,52 @@ export async function loadSkillDoc(name: SkillName): Promise<string> {
   }
 }
 
+type ParsedLesson = { raw: string; serviceId: string | null; decisionType: string | null };
+
+function parseLessonLine(line: string): ParsedLesson {
+  const m = line.match(/^- \S+ — (Rejected|Approved after edit) — "([^"]+)":/);
+  return m ? { raw: line, decisionType: m[1], serviceId: m[2] } : { raw: line, decisionType: null, serviceId: null };
+}
+
 /**
- * Appends one line under the "## Lessons learned" section. Kept
- * deliberately dumb (plain append, not a rewrite) so the file's git
- * history is a clean, ordered log — never a silently-rewritten past
- * entry.
+ * Reads the Lessons learned section, lets `mutate` apply gates against the
+ * parsed existing entries, and rewrites just that section. Everything
+ * above the heading (frontmatter, procedure, guardrails) is untouched.
  */
-export async function appendLesson(name: SkillName, lesson: string, evidenceRef?: string): Promise<void> {
+async function rewriteLessons(name: SkillName, mutate: (lessons: ParsedLesson[]) => ParsedLesson[]): Promise<void> {
   const filePath = path.join(SKILLS_DIR, `${name}.md`);
-  const line = `\n- ${new Date().toISOString()} — ${lesson}${evidenceRef ? ` (evidence: ${evidenceRef})` : ""}`;
-  await appendFile(filePath, line, "utf-8");
+  const content = await readFile(filePath, "utf-8");
+  const idx = content.indexOf(LESSONS_HEADING);
+  if (idx === -1) {
+    console.warn(`[skills] ${name}.md has no "${LESSONS_HEADING}" section — skipping`);
+    return;
+  }
+  const before = content.slice(0, idx);
+  const after = content.slice(idx);
+  const commentMatch = after.match(/^(## Lessons learned\s*\n\n<!--[\s\S]*?-->\s*\n)/);
+  const header = commentMatch ? commentMatch[1] : `${LESSONS_HEADING}\n\n`;
+  const existingLines = after
+    .slice(header.length)
+    .split("\n")
+    .filter((l) => l.trim().startsWith("- "));
+  const updated = mutate(existingLines.map(parseLessonLine));
+  const body = updated.map((l) => l.raw).join("\n");
+  await writeFile(filePath, `${before}${header.replace(/\n+$/, "\n")}\n${body}\n`, "utf-8");
 }
 
 /**
  * Called from the generic decide route for every real human decision on a
- * Proposal — this is what makes the skill docs actually self-learning
- * (an accumulating, git-tracked record of real outcomes) instead of a
- * static prompt nobody revisits. Only fires for the two kinds that have a
- * runtime skill doc; other Proposal kinds have nothing to learn into yet.
+ * Proposal. Applies the four-gate-inspired promotion test before writing
+ * anything:
+ *
+ * 1+2 (generalizable + material improvement): a routine "approved exactly
+ *    as drafted" carries no correction to learn from — skipped entirely,
+ *    not logged as noise.
+ * 3 (not already captured) + skill-prune's "contradicted by newer
+ *    content": a new lesson about the same service + decision type
+ *    supersedes the old one rather than duplicating it.
+ * 4 (minimal footprint): capped at MAX_LESSONS_PER_SKILL, oldest dropped
+ *    first — pruning happens inline on write, not as a separate sweep.
  */
 export async function recordProposalLesson(args: {
   kind: string;
@@ -57,15 +96,19 @@ export async function recordProposalLesson(args: {
 }): Promise<void> {
   const skillName: SkillName | null = args.kind === "profile_field" ? "onboarding" : args.kind === "alert_rule" ? "alerting" : null;
   if (!skillName) return;
+  if (args.decision === "approved" && !args.wasEdited) return; // gate 1+2: nothing to learn
 
-  const service = args.serviceId ? `"${args.serviceId}"` : "an item";
-  let lesson: string;
-  if (args.decision === "rejected") {
-    lesson = `Rejected — ${service}: "${args.summary}"${args.note ? ` — ${args.note}` : ""}. Weigh this against similar future proposals.`;
-  } else if (args.wasEdited) {
-    lesson = `Approved after edit — ${service}: "${args.summary}"${args.note ? ` — ${args.note}` : ""}. The edited value is the new baseline to reason from, not the original draft.`;
-  } else {
-    lesson = `Approved as drafted — ${service}: "${args.summary}". No correction needed this time.`;
-  }
-  await appendLesson(skillName, lesson);
+  const service = args.serviceId ?? "unknown";
+  const decisionType = args.decision === "rejected" ? "Rejected" : "Approved after edit";
+  const text =
+    args.decision === "rejected"
+      ? `"${args.summary}"${args.note ? ` — ${args.note}` : ""}. Weigh this against similar future proposals.`
+      : `"${args.summary}"${args.note ? ` — ${args.note}` : ""}. The edited value is the new baseline to reason from, not the original draft.`;
+  const raw = `- ${new Date().toISOString()} — ${decisionType} — "${service}": ${text}`;
+
+  await rewriteLessons(skillName, (existing) => {
+    const deduped = existing.filter((l) => !(l.serviceId === service && l.decisionType === decisionType));
+    const next = [...deduped, { raw, serviceId: service, decisionType }];
+    return next.length > MAX_LESSONS_PER_SKILL ? next.slice(next.length - MAX_LESSONS_PER_SKILL) : next;
+  });
 }

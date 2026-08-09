@@ -64,6 +64,9 @@ before treating anything as final. It never guesses a business fact it wasn't to
 
 ## Lessons learned
 
-<!-- The agent appends a short, evidence-cited entry here after each real confirm decision
-     (approve/edit/reject) — this section is the running, git-tracked record of how this skill's
-     own judgment has adapted over time. Never hand-edit past entries; only append. -->
+<!-- Gated, not a blind append log (see lib/skills.ts, adapted from transilienceai/communitytools'
+     skill-update four-gate promotion test): a routine "approved exactly as drafted" is never
+     logged here — only a real rejection or edit carries a correction worth remembering. A new
+     entry about the same service+decision-type supersedes (replaces) the old one rather than
+     duplicating it, and the list is capped, oldest dropped first. Don't hand-edit past entries;
+     the write path maintains this section, not a human. -->
