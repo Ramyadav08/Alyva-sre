@@ -13,6 +13,7 @@ import { RecommendationsRunner } from "@/components/RecommendationsRunner";
 import { InvestigationsPanel } from "@/components/InvestigationsPanel";
 import { AppliedFixesPanel } from "@/components/AppliedFixesPanel";
 import { RecoveryCheckRunner } from "@/components/RecoveryCheckRunner";
+import { PostmortemsPanel } from "@/components/PostmortemsPanel";
 
 export default function DashboardPage() {
   return (
@@ -51,6 +52,7 @@ export default function DashboardPage() {
         <ProposalReviewList kind="recommendation" title="Recommendations" />
         <ProposalReviewList kind="pr" title="Suggested code fixes" />
         <AppliedFixesPanel />
+        <PostmortemsPanel />
 
         <OnboardedServices />
       </div>

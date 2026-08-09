@@ -10,7 +10,11 @@ export function RecoveryCheckRunner() {
     let cancelled = false;
     fetch("/api/recovery-check/run", { method: "POST" })
       .then((r) => r.json())
-      .then((d) => !cancelled && setSummary(d.error ? `Recovery check failed: ${d.error}` : `${d.checked} recovery check(s) run.`))
+      .then(
+        (d) =>
+          !cancelled &&
+          setSummary(d.error ? `Recovery check failed: ${d.error}` : `${d.checked} recovery check(s), ${d.postmortemsWritten} postmortem(s) written.`),
+      )
       .catch((err) => !cancelled && setSummary(`Recovery check failed: ${err.message}`));
     return () => {
       cancelled = true;

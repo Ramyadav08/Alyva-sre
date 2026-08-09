@@ -12,15 +12,17 @@
  */
 import { getDb } from "./store";
 import { checkErrorRateElevated } from "./business-impact";
+import { generatePostmortemForProposal } from "./postmortem";
 import type { Proposal, RecoveryCheck } from "./models";
 
 const GRACE_PERIOD_MS = 60_000; // wait this long after apply before checking — the fix needs time to take effect
 const RECOVERY_KINDS = new Set(["recommendation", "pr"]);
 
-export async function runRecoveryChecks(): Promise<{ checked: number }> {
+export async function runRecoveryChecks(): Promise<{ checked: number; postmortemsWritten: number }> {
   const db = await getDb();
   const now = Date.now();
   let checked = 0;
+  const newlyRecovered: Proposal[] = [];
 
   for (const proposal of db.data.proposals as Proposal[]) {
     if (!RECOVERY_KINDS.has(proposal.kind)) continue;
@@ -51,8 +53,19 @@ export async function runRecoveryChecks(): Promise<{ checked: number }> {
     proposal.recoveryCheck = recoveryCheck;
     proposal.updatedAt = new Date().toISOString();
     checked++;
+    if (verdict === "recovered") newlyRecovered.push(proposal);
   }
 
   if (checked > 0) await db.write();
-  return { checked };
+
+  // Rung 6: the moment a recovery is confirmed IS the incident's real
+  // conclusion — write the postmortem right here, unprompted, not on a
+  // separate button a human has to remember to click.
+  let postmortemsWritten = 0;
+  for (const proposal of newlyRecovered) {
+    const pm = await generatePostmortemForProposal(proposal);
+    if (pm) postmortemsWritten++;
+  }
+
+  return { checked, postmortemsWritten };
 }
