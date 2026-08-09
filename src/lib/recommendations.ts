@@ -62,9 +62,14 @@ export async function generateRecommendations(): Promise<number> {
           "data. Cite the actual numbers given — never generic advice like 'add caching' with nothing to " +
           "back it. Only propose 1-3 of the most impactful. Most infra suggestions are not code changes; " +
           "only mark is_code_fix true when the fix is genuinely a source change (e.g. a query/N+1 fix, a " +
-          "missing cache check) you can describe concretely enough to draft a patch note from. service_id " +
-          "must be exactly one of onboardedServiceIds — for an edge/call between two services, use the " +
-          "target (callee) service's id, never a combined label.",
+          "missing cache check) you can describe concretely enough to draft a patch note from. Don't " +
+          "default to 'investigate further' when the evidence already points at a specific, describable " +
+          "fix: an edge whose latency is orders of magnitude above a comparable edge (e.g. the same " +
+          "target service called from elsewhere at sub-millisecond latency) with no error/volume " +
+          "explanation for the gap is itself evidence of a missing timeout/cache/short-circuit on that " +
+          "call path — a real describable code fix, not just 'investigate'. service_id must be exactly " +
+          "one of onboardedServiceIds — for an edge/call between two services, use the target (callee) " +
+          "service's id, never a combined label.",
       },
       { role: "user", content: JSON.stringify({ observedEdges: relevantEdges, onboardedServiceIds: [...onboardedIds] }) },
     ],
