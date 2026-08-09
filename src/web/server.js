@@ -140,17 +140,41 @@ app.post("/api/dashboard/custom-panel/:id/refresh", async (req, res) => {
   res.json({ ok: true, data });
 });
 
-// Raw observability overview — real metrics/traces/logs, leads the dashboard.
-app.get("/api/dashboard/observability", async (req, res) => {
+// Real entity list for the shared filter bar — no node/namespace/pod exists
+// in this environment; this is the honest equivalent (service_name/container_name union).
+app.get("/api/dashboard/entities", async (req, res) => {
   try {
+    const entities = await observability.listEntities();
+    res.json({ ok: true, entities });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Raw observability overview — real metrics/traces/logs, leads the dashboard.
+// ?entity=<name> switches from the top-N ranking view to a focused
+// single-entity time-series view; ?range=<minutes> sets the shared window.
+app.get("/api/dashboard/observability", async (req, res) => {
+  const entity = req.query.entity && req.query.entity !== "all" ? req.query.entity : null;
+  const rangeMinutes = Number(req.query.range) || 60;
+  try {
+    if (entity) {
+      const [metrics, traces, logs] = await Promise.all([
+        observability.entityMetricsTimeseries(entity, rangeMinutes),
+        observability.recentTracesAcrossServices(10, { serviceFilter: entity, rangeMinutes }),
+        observability.recentErrorLogs(10, { serviceFilter: entity, rangeMinutes }),
+      ]);
+      const health = await observability.recentlyUnhealthy();
+      return res.json({ ok: true, mode: "entity", metrics, health, traces, logs });
+    }
     const [cpu, memory, health, traces, logs] = await Promise.all([
       observability.topContainersByCpu(10),
       observability.topContainersByMemory(10),
       observability.recentlyUnhealthy(),
-      observability.recentTracesAcrossServices(8),
-      observability.recentErrorLogs(8),
+      observability.recentTracesAcrossServices(10, { rangeMinutes }),
+      observability.recentErrorLogs(10, { rangeMinutes }),
     ]);
-    res.json({ ok: true, cpu, memory, health, traces, logs });
+    res.json({ ok: true, mode: "all", cpu, memory, health, traces, logs });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

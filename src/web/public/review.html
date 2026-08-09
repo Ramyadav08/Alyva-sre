@@ -90,6 +90,16 @@
     position: fixed; bottom: 1rem; right: 1rem; background: var(--foreground); color: var(--background);
     padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.85rem; opacity: 0; transition: opacity 0.2s;
   }
+  .headline-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1.25rem; font-size: 1rem; font-weight: 600;
+  }
+  .headline-card.impact { border-left: 4px solid var(--danger); }
+  .headline-card.no-impact { border-left: 4px solid var(--ok); color: var(--muted); font-weight: 400; }
+  .edge-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .edge-table th { text-align: left; color: var(--muted); font-weight: 500; font-size: 0.75rem; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); }
+  .edge-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
+  .edge-arrow { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -125,6 +135,21 @@
   <section id="approved-section">
     <h2>Alert Rules — approved</h2>
     <div id="approved"></div>
+  </section>
+
+  <section id="business-impact-section">
+    <h2>Business impact</h2>
+    <div id="business-impact"></div>
+  </section>
+
+  <section id="latency-section">
+    <h2>Top inter-service latency <span id="latency-meta" style="text-transform:none; font-weight:400;"></span></h2>
+    <div id="latency"></div>
+  </section>
+
+  <section id="recommendations-section">
+    <h2>Recommendations</h2>
+    <div id="recommendations"></div>
   </section>
 </main>
 <div id="toast"></div>
@@ -172,6 +197,70 @@ async function load() {
   renderReady(rules.filter(r => r.status === 'pending_review'));
   renderNeedsInput(rules.filter(r => r.status === 'needs_input'));
   renderApproved(rules.filter(r => r.status === 'approved'));
+
+  const dash = await api('/api/dashboard/state');
+  renderBusinessImpact(dash.businessImpact);
+  renderLatency(dash.serviceGraph);
+  renderRecommendations(dash.recommendations);
+}
+
+function renderBusinessImpact(bi) {
+  const el = document.getElementById('business-impact');
+  if (!bi.has_active_impact) {
+    el.innerHTML = `<div class="headline-card no-impact">${escapeHtml(bi.headline)}</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="headline-card impact">${escapeHtml(bi.headline)}</div>` +
+    bi.items.map(i => `
+      <div class="card">
+        <div class="row"><span class="svc">${escapeHtml(i.service_name)}</span> ${tierTag(i.criticality)}</div>
+        <div class="rationale">${escapeHtml(i.headline)}</div>
+        <div class="evidence">impact: ${escapeHtml(i.business_impact)}</div>
+      </div>
+    `).join('');
+}
+
+function renderLatency(graph) {
+  const el = document.getElementById('latency');
+  const meta = document.getElementById('latency-meta');
+  const edges = graph.edges || [];
+  meta.textContent = graph.computed_at ? `(${graph.traces_sampled} traces sampled, updated ${new Date(graph.computed_at).toLocaleTimeString()})` : '';
+  if (!edges.length) { el.innerHTML = '<div class="empty">No cross-service edges found yet.</div>'; return; }
+  const top = edges.slice(0, 5);
+  const rest = edges.slice(5);
+  const rowsHtml = (list) => list.map(e => `
+    <tr>
+      <td>${escapeHtml(e.source)} <span class="edge-arrow">&rarr;</span> ${escapeHtml(e.target)}</td>
+      <td>${e.avg_latency_ms.toFixed(2)}ms</td>
+      <td>${e.p99_latency_ms.toFixed(2)}ms</td>
+      <td>${e.call_count}</td>
+    </tr>
+  `).join('');
+  el.innerHTML = `
+    <table class="edge-table">
+      <thead><tr><th>Edge</th><th>Avg latency</th><th>p99</th><th>Calls sampled</th></tr></thead>
+      <tbody>${rowsHtml(top)}</tbody>
+    </table>
+    ${rest.length ? `<details style="margin-top:0.5rem;"><summary>Show ${rest.length} more edge(s)</summary>
+      <table class="edge-table" style="margin-top:0.5rem;"><tbody>${rowsHtml(rest)}</tbody></table></details>` : ''}
+    ${(graph.excluded || []).length ? `<details style="margin-top:0.5rem;"><summary>${graph.excluded.length} edge(s) excluded from ranking</summary>
+      <div class="evidence">${graph.excluded.map(e => `${e.source} -> ${e.target}: ${e.excluded_reason}`).join('\n')}</div></details>` : ''}
+  `;
+}
+
+function renderRecommendations(rec) {
+  const el = document.getElementById('recommendations');
+  if (!rec.recommendations.length) { el.innerHTML = '<div class="empty">No recommendations yet — none come from a real investigation until one runs.</div>'; return; }
+  el.innerHTML = rec.recommendations.map(r => `
+    <div class="card">
+      <div class="row">
+        <span class="svc">${escapeHtml(r.service_name)}</span>
+        <span style="font-size:0.75rem; color:var(--muted);">${escapeHtml(r.confidence || '')} confidence</span>
+      </div>
+      <div class="rationale">${escapeHtml(r.recommendation)}${r.is_code_fix ? ' <span class="tag critical">code fix</span>' : ''}</div>
+      <div class="evidence">from investigation ${escapeHtml(r.investigation_id)}: ${escapeHtml(r.evidence_headline)}</div>
+    </div>
+  `).join('');
 }
 
 function renderInvestigations(invs) {

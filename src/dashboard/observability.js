@@ -1,12 +1,28 @@
 // Raw observability primitives — real metrics/traces/logs, no derived
 // business logic. This environment is Docker Compose (container_runtime:
-// "docker" on every container series), NOT Kubernetes — there's no pod
-// concept and no restart-count metric. "Top N pods" maps to the real
-// equivalent here: container_name. "Recently failed" maps to real signals
-// that actually exist (up==0 scrape gaps, elevated error rate) — never a
+// "docker" on every container series), NOT Kubernetes — there's no
+// node/namespace/pod concept and no restart-count metric. The entity
+// selector below is honest about that: it offers real service_name and
+// container_name values (whichever exist for a given entity), never a
 // fabricated pod-status field.
 
 const lgtm = require("../lgtm");
+const { traceLatencyP99Query, traceErrorRateQuery } = require("../shared/queries");
+
+/**
+ * Real entity list for the dashboard's filter dropdown — the union of real
+ * discovered services (have traces/latency/error-rate) and real containers
+ * (have CPU/memory), each flagged with what's actually queryable for it. No
+ * node/namespace/pod dimension exists in this environment; this IS the
+ * honest equivalent, not a placeholder for one.
+ */
+async function listEntities() {
+  const [services, containerSeries] = await Promise.all([lgtm.discoverServices(), lgtm.querySeries("container_cpu_utilization_ratio")]);
+  const serviceNames = new Set(services.map((s) => s.service_name));
+  const containerNames = new Set(containerSeries.data.map((s) => s.container_name).filter(Boolean));
+  const all = new Set([...serviceNames, ...containerNames]);
+  return [...all].sort().map((name) => ({ name, has_service_metrics: serviceNames.has(name), has_container_metrics: containerNames.has(name) }));
+}
 
 async function topContainersByCpu(limit = 10) {
   const result = await lgtm.queryMetric(`topk(${limit}, avg by(container_name)(container_cpu_utilization_ratio))`);
@@ -16,6 +32,37 @@ async function topContainersByCpu(limit = 10) {
 async function topContainersByMemory(limit = 10) {
   const result = await lgtm.queryMetric(`topk(${limit}, avg by(container_name)(container_memory_percent_ratio))`);
   return (result.data?.result || []).map((r) => ({ container_name: r.metric.container_name, memory_percent: Number(r.value[1]) }));
+}
+
+/**
+ * Single-entity time-series view for the metrics dashboard when a specific
+ * entity is selected (rather than "All", which shows the top-N ranking).
+ * Pulls whatever signals are real for that entity — CPU/memory if it's a
+ * real container, latency/error-rate if it's a real traced service — and
+ * says explicitly which it found, rather than silently showing zeros for a
+ * signal that was never real for that entity.
+ */
+async function entityMetricsTimeseries(entityName, rangeMinutes = 60) {
+  const end = Math.floor(Date.now() / 1000);
+  const start = end - rangeMinutes * 60;
+  const step = Math.max(30, Math.round((rangeMinutes * 60) / 60));
+
+  const [cpu, memory, latency, errorRate] = await Promise.all([
+    lgtm.queryMetricRange(`avg(container_cpu_utilization_ratio{container_name="${entityName}"})`, start, end, step).catch(() => null),
+    lgtm.queryMetricRange(`avg(container_memory_percent_ratio{container_name="${entityName}"})`, start, end, step).catch(() => null),
+    lgtm.queryMetricRange(traceLatencyP99Query(entityName, Math.max(5, Math.round(rangeMinutes / 10))), start, end, step).catch(() => null),
+    lgtm.queryMetricRange(traceErrorRateQuery(entityName, Math.max(5, Math.round(rangeMinutes / 10))), start, end, step).catch(() => null),
+  ]);
+
+  const series = (r) => (r?.data?.result?.[0]?.values || []).map(([ts, v]) => ({ ts: Number(ts), value: Number(v) }));
+  return {
+    entity: entityName,
+    range_minutes: rangeMinutes,
+    cpu: series(cpu),
+    memory: series(memory),
+    latency_p99_ms: series(latency),
+    error_rate: series(errorRate),
+  };
 }
 
 /**
@@ -32,9 +79,7 @@ async function recentlyUnhealthy() {
   const errorChecks = await Promise.all(
     discovered.map(async (svc) => {
       try {
-        const r = await lgtm.queryMetric(
-          `sum(rate(traces_span_metrics_calls_total{service_name="${svc.service_name}",status_code="STATUS_CODE_ERROR"}[5m])) / clamp_min(sum(rate(traces_span_metrics_calls_total{service_name="${svc.service_name}"}[5m])), 0.001)`
-        );
+        const r = await lgtm.queryMetric(traceErrorRateQuery(svc.service_name, 5));
         const value = Number(r.data?.result?.[0]?.value?.[1]);
         return Number.isFinite(value) && value > 0.05 ? { service_name: svc.service_name, error_rate: value, reason: "error rate > 5% in the last 5m" } : null;
       } catch {
@@ -46,13 +91,17 @@ async function recentlyUnhealthy() {
   return { down_scrape_targets: down, elevated_error_rate: errorChecks.filter(Boolean) };
 }
 
-async function recentTracesAcrossServices(limit = 10) {
+async function recentTracesAcrossServices(limit = 10, { serviceFilter = null, rangeMinutes = 15 } = {}) {
   const discovered = await lgtm.discoverServices();
-  const sample = discovered.slice(0, 8); // cap — searching every service would be slow for a chat response
+  const targets = serviceFilter ? discovered.filter((s) => s.service_name === serviceFilter) : discovered.slice(0, 8);
+  const end = Math.floor(Date.now() / 1000);
+  const start = end - rangeMinutes * 60;
   const results = [];
-  for (const svc of sample) {
+  for (const svc of targets) {
     try {
-      const r = await lgtm.searchTraces(`service.name=${svc.service_name}`, 2);
+      const r = serviceFilter
+        ? await lgtm.searchTracesRange(`service.name=${svc.service_name}`, start, end, limit)
+        : await lgtm.searchTraces(`service.name=${svc.service_name}`, 2);
       for (const t of r.traces || []) {
         results.push({ trace_id: t.traceID, service_name: svc.service_name, root_trace_name: t.rootTraceName, duration_ms: t.durationMs });
       }
@@ -78,8 +127,9 @@ function extractLogBody(rawLine) {
   }
 }
 
-async function recentErrorLogs(limit = 10) {
-  const result = await lgtm.queryLogs('{level="ERROR"}', 15, limit);
+async function recentErrorLogs(limit = 10, { serviceFilter = null, rangeMinutes = 15 } = {}) {
+  const selector = serviceFilter ? `{level="ERROR", service_name=~".*${serviceFilter}.*"}` : '{level="ERROR"}';
+  const result = await lgtm.queryLogs(selector, rangeMinutes, limit);
   const streams = result.data?.result || [];
   const lines = [];
   for (const s of streams) {
@@ -91,4 +141,12 @@ async function recentErrorLogs(limit = 10) {
   return lines.slice(0, limit);
 }
 
-module.exports = { topContainersByCpu, topContainersByMemory, recentlyUnhealthy, recentTracesAcrossServices, recentErrorLogs };
+module.exports = {
+  listEntities,
+  topContainersByCpu,
+  topContainersByMemory,
+  entityMetricsTimeseries,
+  recentlyUnhealthy,
+  recentTracesAcrossServices,
+  recentErrorLogs,
+};
