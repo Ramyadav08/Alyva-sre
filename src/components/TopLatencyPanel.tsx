@@ -29,7 +29,7 @@ export function TopLatencyPanel() {
 
   if (edges.length === 0) {
     return (
-      <div className="rounded-md border border-border bg-card p-4">
+      <div className="surface-card">
         <h2 className="text-sm font-semibold">Top latency between services</h2>
         <p className="mt-1 text-sm text-muted-foreground">No cross-service call data observed yet.</p>
       </div>
@@ -40,7 +40,7 @@ export function TopLatencyPanel() {
   const maxLatency = Math.max(...edges.map((e) => e.avgLatencyMs));
 
   return (
-    <div className="rounded-md border border-border bg-card p-4">
+    <div className="surface-card">
       <h2 className="text-sm font-semibold">Top latency between services</h2>
       <ul className="mt-2 space-y-1.5">
         {visible.map((e, i) => (

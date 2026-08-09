@@ -28,7 +28,7 @@ export function BusinessImpactPanel() {
 
   if (summary.checkedServiceCount === 0) {
     return (
-      <div className="rounded-md border border-border bg-card p-4">
+      <div className="surface-card">
         <h2 className="text-sm font-semibold">Business impact</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           No revenue-bearing services confirmed yet — answer the onboarding questions above to
@@ -39,7 +39,7 @@ export function BusinessImpactPanel() {
   }
 
   return (
-    <div className="rounded-md border border-border bg-card p-4">
+    <div className="surface-card">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold">Business impact</h2>
         {summary.hasActiveImpact ? (

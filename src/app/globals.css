@@ -61,4 +61,44 @@
       bg-muted px-2 py-0.5 text-xs font-mono text-muted-foreground
       hover:text-foreground hover:border-primary/40 transition-colors;
   }
+
+  /*
+   * Shared surface language — layout/interaction patterns referenced from
+   * Harvey.ai and Legora's product marketing (confident whitespace,
+   * near-monochrome restraint, pill-shaped actions), NOT their brand
+   * colors or fonts. Every token below still resolves to SREonCall's own
+   * palette (--primary orange, --secondary navy, Geist Sans) — this is a
+   * layout refresh, not a rebrand.
+   */
+  .btn-pill {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-full
+      px-4 py-2 text-sm font-medium transition-colors
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-pill-primary {
+    @apply btn-pill bg-primary text-primary-foreground hover:bg-primary/90;
+  }
+  .btn-pill-secondary {
+    @apply btn-pill border border-border bg-card text-foreground hover:bg-muted;
+  }
+  .btn-pill-ghost {
+    @apply btn-pill text-muted-foreground hover:bg-muted hover:text-foreground;
+  }
+
+  .surface-card {
+    @apply rounded-xl border border-border bg-card p-5;
+  }
+
+  .section-heading {
+    @apply text-base font-semibold tracking-tight text-foreground;
+  }
+
+  /* The "ask" bar — Perplexity/Linear-style single-line command input, the
+     interaction pattern behind custom-panel-from-chat and any future
+     free-text agent prompt. */
+  .ask-bar {
+    @apply flex items-center gap-2 rounded-full border border-border
+      bg-card px-4 py-2.5 shadow-sm focus-within:border-primary/50
+      transition-colors;
+  }
 }

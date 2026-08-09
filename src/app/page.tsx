@@ -7,6 +7,9 @@ import { BusinessImpactPanel } from "@/components/BusinessImpactPanel";
 import { TopLatencyPanel } from "@/components/TopLatencyPanel";
 import { AlertRulesRunner } from "@/components/AlertRulesRunner";
 import { ActiveRulesList } from "@/components/ActiveRulesList";
+import { CustomPanelChat } from "@/components/CustomPanelChat";
+import { CustomPanelsList } from "@/components/CustomPanelsList";
+import { RecommendationsRunner } from "@/components/RecommendationsRunner";
 
 export default function DashboardPage() {
   return (
@@ -16,20 +19,33 @@ export default function DashboardPage() {
           <Logo />
           <span className="text-sm text-muted-foreground">Alyva — AI-native SRE</span>
         </div>
-        <div className="text-right">
+        <div className="space-y-0.5 text-right">
           <OnboardingRunner />
           <AlertRulesRunner />
+          <RecommendationsRunner />
         </div>
       </header>
-      <div className="mx-auto max-w-5xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-5xl space-y-8 px-6 py-8">
         <QuestionsBanner />
         <ProposalReviewList kind="profile_field" title="Onboarding — confirm service profiles" />
         <ProposalReviewList kind="alert_rule" title="Alert rules — review" />
+
         <div className="grid gap-4 sm:grid-cols-2">
           <BusinessImpactPanel />
           <TopLatencyPanel />
         </div>
+
         <ActiveRulesList />
+
+        <section className="space-y-3">
+          <h2 className="section-heading">Ask for a custom panel</h2>
+          <CustomPanelChat />
+          <CustomPanelsList />
+        </section>
+
+        <ProposalReviewList kind="recommendation" title="Recommendations" />
+        <ProposalReviewList kind="pr" title="Suggested code fixes" />
+
         <OnboardedServices />
       </div>
     </main>

@@ -81,7 +81,7 @@ export function QuestionsBanner() {
                     onKeyDown={(e) => e.key === "Enter" && submit(q.id)}
                   />
                   <button
-                    className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground"
+                    className="btn-pill-primary px-3 py-1 text-sm"
                     onClick={() => submit(q.id)}
                   >
                     Answer

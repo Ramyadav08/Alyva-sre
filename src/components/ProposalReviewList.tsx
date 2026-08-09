@@ -94,12 +94,12 @@ export function ProposalReviewList({ kind, title }: { kind: ProposalKind; title:
               )}
               <div className="mt-2 flex gap-2">
                 <button
-                  className="rounded bg-primary px-3 py-1 text-xs text-primary-foreground"
+                  className="btn-pill-primary px-3 py-1 text-xs"
                   onClick={() => approveWithEdit(p)}
                 >
                   {editDrafts[p.id] ? "Save edit + approve" : "Approve"}
                 </button>
-                <button className="rounded border border-border px-3 py-1 text-xs" onClick={() => decide(p.id, "rejected")}>
+                <button className="btn-pill-secondary px-3 py-1 text-xs" onClick={() => decide(p.id, "rejected")}>
                   Reject
                 </button>
               </div>
