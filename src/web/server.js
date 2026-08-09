@@ -13,6 +13,8 @@ const { buildBusinessImpactSummary } = require("../dashboard/businessImpact");
 const { buildRecommendations } = require("../dashboard/recommendations");
 const customPanel = require("../dashboard/customPanel");
 const traceExplorer = require("../dashboard/traceExplorer");
+const observability = require("../dashboard/observability");
+const chatbot = require("../dashboard/chatbot");
 
 const app = express();
 app.use(express.json());
@@ -136,6 +138,41 @@ app.post("/api/dashboard/custom-panel/:id/refresh", async (req, res) => {
   if (!panel) return res.status(404).json({ ok: false, error: "No such panel" });
   const data = await customPanel.executePanelSpec(panel);
   res.json({ ok: true, data });
+});
+
+// Raw observability overview — real metrics/traces/logs, leads the dashboard.
+app.get("/api/dashboard/observability", async (req, res) => {
+  try {
+    const [cpu, memory, health, traces, logs] = await Promise.all([
+      observability.topContainersByCpu(10),
+      observability.topContainersByMemory(10),
+      observability.recentlyUnhealthy(),
+      observability.recentTracesAcrossServices(8),
+      observability.recentErrorLogs(8),
+    ]);
+    res.json({ ok: true, cpu, memory, health, traces, logs });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// General-purpose ops chatbot.
+app.post("/api/dashboard/chat", async (req, res) => {
+  try {
+    const result = await chatbot.sendMessage(req.body.message);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get("/api/dashboard/chat/history", (req, res) => {
+  res.json({ ok: true, messages: chatbot.getConversation() });
+});
+
+app.post("/api/dashboard/chat/reset", (req, res) => {
+  chatbot.resetConversation();
+  res.json({ ok: true });
 });
 
 // Standalone trace explorer — independent of any investigation.

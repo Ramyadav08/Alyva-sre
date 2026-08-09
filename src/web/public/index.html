@@ -98,6 +98,17 @@
   .panel-chat { display: flex; gap: 0.4rem; margin-bottom: 0.8rem; }
   .panel-chat input { flex: 1; font: inherit; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); }
   details summary { cursor: pointer; color: var(--muted); font-size: 0.8rem; }
+  .obs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.8rem; }
+  .obs-list { list-style: none; margin: 0; padding: 0; font-size: 0.82rem; }
+  .obs-list li { display: flex; justify-content: space-between; padding: 0.25rem 0; border-bottom: 1px solid var(--border); }
+  .obs-list li:last-child { border-bottom: none; }
+  .health-ok { color: var(--ok); font-weight: 600; }
+  .health-bad { color: var(--danger); font-weight: 600; }
+  .chat-window { max-height: 360px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); padding: 0.75rem; margin-bottom: 0.6rem; }
+  .chat-msg { margin-bottom: 0.6rem; font-size: 0.85rem; }
+  .chat-msg .who { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  .chat-msg.user .who { color: var(--primary); }
+  .chat-msg .body { margin-top: 0.15rem; white-space: pre-wrap; }
   #toast {
     position: fixed; bottom: 1rem; right: 1rem; background: var(--foreground); color: var(--background);
     padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.85rem; opacity: 0; transition: opacity 0.2s;
@@ -114,6 +125,42 @@
   <a href="/review.html" class="nav">Review &amp; approve &rarr;</a>
 </header>
 <main>
+  <section id="observability-section">
+    <h2>Observability overview <span style="text-transform:none; font-weight:400;">(real metrics, traces &amp; logs)</span></h2>
+    <div class="obs-grid">
+      <div class="card">
+        <div style="font-weight:600; margin-bottom:0.4rem;">Top containers by CPU</div>
+        <ul class="obs-list" id="obs-cpu"></ul>
+      </div>
+      <div class="card">
+        <div style="font-weight:600; margin-bottom:0.4rem;">Top containers by memory</div>
+        <ul class="obs-list" id="obs-memory"></ul>
+      </div>
+      <div class="card">
+        <div style="font-weight:600; margin-bottom:0.4rem;">Health</div>
+        <div id="obs-health"></div>
+      </div>
+      <div class="card">
+        <div style="font-weight:600; margin-bottom:0.4rem;">Recent traces</div>
+        <ul class="obs-list" id="obs-traces"></ul>
+      </div>
+      <div class="card" style="grid-column: 1 / -1;">
+        <div style="font-weight:600; margin-bottom:0.4rem;">Recent error logs</div>
+        <div class="evidence" id="obs-logs" style="max-height:150px; overflow-y:auto;"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="chat-section">
+    <h2>Ask AI <span style="text-transform:none; font-weight:400;">— e.g. "top 10 containers by CPU", "what recently failed", "build me a panel for cart latency"</span></h2>
+    <div class="chat-window" id="chat-window"></div>
+    <div class="panel-chat">
+      <input type="text" id="chat-input" placeholder="Ask anything about the system, or ask to build a dashboard panel..." />
+      <button class="primary" id="chat-send-btn">Send</button>
+      <button id="chat-reset-btn">Reset</button>
+    </div>
+  </section>
+
   <section id="business-impact-section">
     <h2>Business impact</h2>
     <div id="business-impact"></div>
@@ -182,7 +229,64 @@ async function load() {
   renderLatency(state.serviceGraph);
   renderRecommendations(state.recommendations);
   renderKeptPanels(state.layout || []);
+  loadObservability();
 }
+
+async function loadObservability() {
+  try {
+    const o = await api('/api/dashboard/observability');
+    document.getElementById('obs-cpu').innerHTML = o.cpu.map(c => `<li><span>${escapeHtml(c.container_name)}</span><span>${c.cpu_utilization_ratio.toFixed(2)}%</span></li>`).join('') || '<li>No data</li>';
+    document.getElementById('obs-memory').innerHTML = o.memory.map(c => `<li><span>${escapeHtml(c.container_name)}</span><span>${c.memory_percent.toFixed(1)}%</span></li>`).join('') || '<li>No data</li>';
+    const bad = (o.health.down_scrape_targets.length + o.health.elevated_error_rate.length) > 0;
+    document.getElementById('obs-health').innerHTML = bad
+      ? `<div class="health-bad">${o.health.down_scrape_targets.length} down, ${o.health.elevated_error_rate.length} elevated error rate</div>` +
+        o.health.elevated_error_rate.map(e => `<div class="evidence">${escapeHtml(e.service_name)}: ${escapeHtml(e.reason)}</div>`).join('') +
+        o.health.down_scrape_targets.map(d => `<div class="evidence">${escapeHtml(d.job)}: ${escapeHtml(d.reason)}</div>`).join('')
+      : '<div class="health-ok">All healthy</div>';
+    document.getElementById('obs-traces').innerHTML = o.traces.map(t => `<li><span>${escapeHtml(t.service_name)}</span><span style="font-family:ui-monospace,monospace; font-size:0.75rem;">${escapeHtml(t.trace_id.slice(0,12))}...</span></li>`).join('') || '<li>No traces</li>';
+    document.getElementById('obs-logs').textContent = o.logs.length ? o.logs.map(l => `[${escapeHtml(l.service_name||'?')}] ${escapeHtml(l.line)}`).join('\n') : 'No recent error logs.';
+  } catch (e) {
+    console.error('observability load failed', e);
+  }
+}
+
+async function loadChatHistory() {
+  const result = await api('/api/dashboard/chat/history');
+  const win = document.getElementById('chat-window');
+  win.innerHTML = result.messages.map(m => `
+    <div class="chat-msg ${m.role}">
+      <div class="who">${m.role === 'user' ? 'you' : 'ai'}</div>
+      <div class="body">${escapeHtml(m.content || '')}</div>
+    </div>
+  `).join('') || '<div class="empty">Ask a question to get started.</div>';
+  win.scrollTop = win.scrollHeight;
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  if (!input.value) return;
+  const message = input.value;
+  input.value = '';
+  const win = document.getElementById('chat-window');
+  win.innerHTML += `<div class="chat-msg user"><div class="who">you</div><div class="body">${escapeHtml(message)}</div></div>`;
+  win.innerHTML += `<div class="chat-msg assistant" id="chat-pending"><div class="who">ai</div><div class="body">...</div></div>`;
+  win.scrollTop = win.scrollHeight;
+  try {
+    const result = await api('/api/dashboard/chat', { method: 'POST', body: JSON.stringify({ message }) });
+    document.getElementById('chat-pending').outerHTML = `<div class="chat-msg assistant"><div class="who">ai</div><div class="body">${escapeHtml(result.reply)}</div></div>`;
+    win.scrollTop = win.scrollHeight;
+    load(); // a chat message may have created a new panel or answered something dashboard-relevant
+  } catch (e) {
+    document.getElementById('chat-pending').outerHTML = `<div class="chat-msg assistant"><div class="who">ai</div><div class="body">Error: ${escapeHtml(e.message)}</div></div>`;
+  }
+}
+document.getElementById('chat-send-btn').addEventListener('click', sendChatMessage);
+document.getElementById('chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChatMessage(); });
+document.getElementById('chat-reset-btn').addEventListener('click', async () => {
+  await api('/api/dashboard/chat/reset', { method: 'POST', body: JSON.stringify({}) });
+  loadChatHistory();
+});
+loadChatHistory();
 
 function renderBusinessImpact(bi) {
   const el = document.getElementById('business-impact');
