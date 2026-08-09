@@ -165,6 +165,8 @@ export type AlertBacktestResult = {
   ranAt: string;
   /** Raw historical values from the backtest window — reused by tuning.ts to compute a candidate threshold without re-fetching. */
   rawValues?: number[];
+  /** How many real historical samples fell inside the rule's quietHours and were excluded from firing/noise judgment — 0 (not undefined) when the rule has no quiet hours, so this is always a real count, never a silent gap. */
+  excludedByQuietHoursCount?: number;
 };
 
 export type AlertTuningHistoryEntry = {
@@ -199,6 +201,10 @@ export type AlertRulePayload = {
   confidence: "high" | "medium" | "low";
   /** Set only on a retune Proposal — approving it updates this existing rule in place (with a tuningHistory entry) instead of creating a new one. */
   retuneOfRuleId?: string;
+  /** Plain-English AlertPolicy ids that concretely shaped this rule's threshold/window/quietHours — Auditability: a rule that says a policy applied must be able to point at exactly which one(s), not just claim it in prose. Empty array (not undefined) when no policy applied. */
+  appliedPolicyIds: string[];
+  /** A policy-derived suppression window ("don't page before 9am"), local hours 0-23. Structurally enforced in backtest.ts — samples inside this window are excluded from the noise/firing judgment, not just noted. Null when no policy imposes one. */
+  quietHours: { startHour: number; endHour: number } | null;
 };
 
 export type AlertRule = AlertRulePayload & {
@@ -211,6 +217,26 @@ export type AlertRule = AlertRulePayload & {
   retuneProposal: AlertRetuneProposal | null;
   retuneRejections: Array<{ at: string; note?: string }>;
   learnedCorrectionApplied: { factor: number; sampleSize: number; preCorrectionThreshold: number } | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/**
+ * A human-authored, plain-English behavior rule for alerting ("don't page
+ * before 9am unless it's payments") — Stretch 8. Deliberately not a
+ * Proposal: the human typed these exact words themselves, so there is
+ * nothing for the agent to draft or for a review loop to approve — the
+ * agent's job is to *consult* this list on every draft/retune pass
+ * (see lib/alert-rules/draft.ts and lib/alert-rules/policy-retune.ts), not
+ * to author it. Malleability lives in `active`: turning a
+ * policy off (or adding a new one) takes effect on the very next
+ * unprompted drafting/retune cycle — never retroactively rewrites an
+ * already-approved rule's history.
+ */
+export type AlertPolicy = {
+  id: string;
+  text: string;
+  active: boolean;
   createdAt: string;
   updatedAt: string;
 };

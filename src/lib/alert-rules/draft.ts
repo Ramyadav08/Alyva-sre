@@ -7,6 +7,7 @@
 import { getDb } from "../store";
 import { getLLMClient, type ToolDefinition } from "../llm";
 import { loadSkillDoc } from "../skills";
+import { listActivePolicies } from "../alert-policies";
 import type { ServiceBaseline } from "./baseline";
 import type { AlertCriticality, AlertRulePayload, AlertSignalType } from "../models";
 
@@ -86,6 +87,13 @@ const RULE_SCHEMA: ToolDefinition = {
             confidence: { type: "string", enum: ["high", "medium", "low"] },
             needs_human_input: { type: "boolean" },
             clarifying_question: { type: ["string", "null"] },
+            policy_ids_applied: {
+              type: "array",
+              items: { type: "string" },
+              description: "id(s) of activePolicies that concretely shaped this rule's threshold/window/quiet_hours — empty if none applied. Never claim a policy applied in rationale without listing its id here.",
+            },
+            quiet_hours_start_hour: { type: ["number", "null"], description: "0-23, local hour a policy-derived suppression window starts, or null if no policy imposes one." },
+            quiet_hours_end_hour: { type: ["number", "null"], description: "0-23, local hour the suppression window ends." },
           },
           required: ["signal_type", "operator", "threshold", "threshold_unit", "window_minutes", "rationale", "confidence"],
         },
@@ -122,10 +130,11 @@ export async function draftRulesForService(
     ];
   }
 
-  const [latencyFactor, errorFactor, logFactor] = await Promise.all([
+  const [latencyFactor, errorFactor, logFactor, activePolicies] = await Promise.all([
     learnedCorrectionFactor("trace_latency"),
     learnedCorrectionFactor("trace_error_rate"),
     learnedCorrectionFactor("log_error_rate"),
+    listActivePolicies(),
   ]);
 
   const skillDoc = await loadSkillDoc("alerting");
@@ -149,7 +158,22 @@ export async function draftRulesForService(
             ? " NOTE: a human explicitly confirmed this service's baseline window is contaminated " +
               "by a real ongoing issue and asked to proceed anyway — prefer a criticality-tier floor " +
               "over the (unreliable) observed baseline for every signal here, and flag confidence 'low'."
-            : ""),
+            : "") +
+          "\n\nactivePolicies (if any) are binding human house rules in plain English, not " +
+          "suggestions. For EVERY policy in activePolicies, explicitly decide whether it applies to " +
+          "THIS rule's exact service+signal_type — a policy about 'error-rate paging' for a service " +
+          "covers that service's trace_error_rate AND log_error_rate rules both, not just the one " +
+          "signal type you happen to be most confident about. If it applies, adjust threshold, " +
+          "window_minutes, and/or quiet_hours_start_hour/end_hour so the rule actually satisfies it, " +
+          "list that policy's id in policy_ids_applied, and say plainly in rationale how it changed " +
+          "the number (e.g. 'raised threshold to 2.0x per policy policy_123: only page for sustained " +
+          "spikes'). If it does NOT apply, you must still say so explicitly in rationale (e.g. 'policy " +
+          "policy_123 is about latency, not relevant to this error-rate rule') — a rationale that " +
+          "mentions threshold/criticality but never addresses a given activePolicies entry at all is " +
+          "an unacceptable silent ignore, even if your final decision not to apply it turns out right. " +
+          "If a policy clearly should apply but you can't mechanically satisfy it via threshold/window/" +
+          "quiet_hours alone, set needs_human_input true and explain the conflict in clarifying_question " +
+          "instead of guessing.",
       },
       {
         role: "user",
@@ -163,6 +187,7 @@ export async function draftRulesForService(
             trace_error_rate: errorFactor,
             log_error_rate: logFactor,
           },
+          activePolicies: activePolicies.map((p) => ({ id: p.id, text: p.text })),
         }),
       },
     ],
@@ -202,6 +227,15 @@ export async function draftRulesForService(
     // same "don't trust the model's arithmetic" pattern as tuning.ts's
     // directional guard.
     const threshold = factor ? r.threshold * factor.factor : r.threshold;
+    const appliedPolicyIds: string[] = Array.isArray(r.policy_ids_applied) ? r.policy_ids_applied : [];
+    // Defense in depth, same shape as the invalid-service_id guard in
+    // recommendations.ts: never let a claimed policy id point at nothing —
+    // Auditability breaks the moment a citation can't be resolved.
+    const validPolicyIds = appliedPolicyIds.filter((id) => activePolicies.some((p) => p.id === id));
+    const quietHours =
+      typeof r.quiet_hours_start_hour === "number" && typeof r.quiet_hours_end_hour === "number"
+        ? { startHour: r.quiet_hours_start_hour, endHour: r.quiet_hours_end_hour }
+        : null;
     return {
       serviceId,
       signalType: r.signal_type,
@@ -214,6 +248,8 @@ export async function draftRulesForService(
       evidenceStatsUsed: r.evidence_stats_used ?? [],
       confidence: r.confidence,
       needsHumanInput: false,
+      appliedPolicyIds: validPolicyIds,
+      quietHours,
     };
   });
 }

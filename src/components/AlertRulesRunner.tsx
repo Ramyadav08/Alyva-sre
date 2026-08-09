@@ -20,10 +20,18 @@ export function AlertRulesRunner() {
         const draft = await draftRes.json();
         const retuneRes = await fetch("/api/alert-rules/retune-sweep", { method: "POST" });
         const retune = await retuneRes.json();
+        // Stretch 8 (Agency): reconsiders every active rule against any
+        // policy it hasn't applied yet — unprompted, same as the two calls
+        // above, not gated behind a button.
+        const policyRes = await fetch("/api/alert-rules/policy-sweep", { method: "POST" });
+        const policySweep = await policyRes.json();
         if (cancelled) return;
         const proposed = (draft.drafted ?? []).filter((d: any) => d.action === "proposed").length;
         const retuned = (retune.results ?? []).filter((r: any) => r.action === "retune_proposed").length;
-        setSummary(`${proposed} rule(s) drafted, ${retuned} retune proposal(s) from this pass.`);
+        const policyRetuned = (policySweep.results ?? []).filter((r: any) => r.action === "policy_retune_proposed").length;
+        setSummary(
+          `${proposed} rule(s) drafted, ${retuned} retune proposal(s), ${policyRetuned} policy-driven retune proposal(s) from this pass.`,
+        );
       } catch (err) {
         if (!cancelled) setSummary(`Alert-rules cycle failed: ${(err as Error).message}`);
       }
