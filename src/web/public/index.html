@@ -97,24 +97,28 @@
   <img src="/logo.svg" alt="" onerror="this.style.display='none'" />
   <div>
     <h1>Alyva-sre</h1>
-    <div class="sub">Alert Rules skill — review &amp; approve</div>
+    <div class="sub">Onboarding + Alert Rules skills — review &amp; approve</div>
   </div>
 </header>
 <main>
   <section id="questions-section">
-    <h2>Pending questions</h2>
+    <h2>Onboarding — pending questions</h2>
     <div id="questions"></div>
   </section>
+  <section id="profiles-section">
+    <h2>Onboarding — service profiles</h2>
+    <div id="profiles"></div>
+  </section>
   <section id="review-section">
-    <h2>Ready for review</h2>
+    <h2>Alert Rules — ready for review</h2>
     <div id="ready"></div>
   </section>
   <section id="needsinput-section">
-    <h2>Needs human input</h2>
+    <h2>Alert Rules — needs human input</h2>
     <div id="needsinput"></div>
   </section>
   <section id="approved-section">
-    <h2>Approved</h2>
+    <h2>Alert Rules — approved</h2>
     <div id="approved"></div>
   </section>
 </main>
@@ -156,7 +160,8 @@ async function api(path, opts) {
 
 async function load() {
   const state = await api('/api/state');
-  renderQuestions(state.pendingQuestions);
+  renderQuestions(state.pendingOnboardingQuestions || []);
+  renderProfiles(state.profiles || []);
   const rules = state.rules || [];
   renderReady(rules.filter(r => r.status === 'pending_review'));
   renderNeedsInput(rules.filter(r => r.status === 'needs_input'));
@@ -168,18 +173,56 @@ function renderQuestions(qs) {
   if (!qs.length) { el.innerHTML = '<div class="empty">None right now.</div>'; return; }
   el.innerHTML = qs.map(q => `
     <div class="card">
-      <div class="svc">${escapeHtml(q.service)}</div>
+      <div class="svc">${escapeHtml(q.service)} <span style="color:var(--muted); font-weight:400;">/ ${escapeHtml(q.type)}</span></div>
       <div class="rationale">${escapeHtml(q.question)}</div>
       <div class="evidence">${escapeHtml(q.evidence)}</div>
-      <div class="options">
-        ${q.options.map(o => `<button data-qid="${q.id}" data-answer="${o}" class="answer-btn">${o}</button>`).join('')}
-      </div>
+      ${q.free_text
+        ? `<div class="options">
+             <input type="text" class="free-text-input" data-qid="${q.id}" placeholder="Type your answer, or 'unknown'" style="flex:1; min-width:260px; font:inherit; padding:0.35rem; border-radius:6px; border:1px solid var(--border); background:var(--background); color:var(--foreground);" />
+             <button class="primary submit-text-btn" data-qid="${q.id}">Submit</button>
+           </div>`
+        : `<div class="options">
+             ${q.options.map(o => `<button data-qid="${q.id}" data-answer="${o}" class="answer-btn">${o}</button>`).join('')}
+           </div>`
+      }
     </div>
   `).join('');
-  el.querySelectorAll('.answer-btn').forEach(btn => btn.addEventListener('click', async () => {
+  el.querySelectorAll('.answer-btn').forEach(btn => btn.addEventListener('click', () => submitAnswer(btn.dataset.qid, btn.dataset.answer)));
+  el.querySelectorAll('.submit-text-btn').forEach(btn => btn.addEventListener('click', () => {
+    const input = el.querySelector(`.free-text-input[data-qid="${btn.dataset.qid}"]`);
+    submitAnswer(btn.dataset.qid, input.value || 'unknown');
+  }));
+}
+
+async function submitAnswer(qid, answer) {
+  try {
+    await api(`/api/onboarding/questions/${qid}/answer`, { method: 'POST', body: JSON.stringify({ answer }) });
+    toast(`Answered: ${answer}`);
+    load();
+  } catch (e) { toast('Error: ' + e.message); }
+}
+
+function renderProfiles(profiles) {
+  const el = document.getElementById('profiles');
+  if (!profiles.length) { el.innerHTML = '<div class="empty">No services discovered yet.</div>'; return; }
+  el.innerHTML = profiles.map(p => `
+    <div class="card">
+      <div class="row">
+        <div><span class="svc">${escapeHtml(p.service_name)}</span> ${tierTag(p.service_criticality)}
+          <span style="color:var(--muted)"> (${escapeHtml(p.criticality_source || 'unresolved')})</span></div>
+        <span class="verdict ${p.status === 'confirmed' ? 'acceptable' : 'no_historical_data'}">${escapeHtml(p.status)}</span>
+      </div>
+      <div class="rationale">
+        business impact: ${p.business_impact?.status === 'provided' ? escapeHtml(p.business_impact.detail) : '<i style="color:var(--muted)">unknown, awaiting input</i>'}
+      </div>
+      <div class="evidence">p99=${fmt(p.snapshot?.latency_p99_ms)}ms err=${fmt(p.snapshot?.error_rate_fraction)} calls/s=${fmt(p.snapshot?.call_rate_per_sec)}</div>
+      ${p.status !== 'confirmed' ? `<div class="actions"><button class="primary confirm-profile-btn" data-service="${p.service_name}">Confirm profile</button></div>` : ''}
+    </div>
+  `).join('');
+  el.querySelectorAll('.confirm-profile-btn').forEach(btn => btn.addEventListener('click', async () => {
     try {
-      await api(`/api/questions/${btn.dataset.qid}/answer`, { method: 'POST', body: JSON.stringify({ answer: btn.dataset.answer }) });
-      toast(`Answered: ${btn.dataset.answer}`);
+      await api(`/api/onboarding/profile/${btn.dataset.service}/confirm`, { method: 'POST', body: JSON.stringify({}) });
+      toast('Profile confirmed');
       load();
     } catch (e) { toast('Error: ' + e.message); }
   }));

@@ -4,7 +4,7 @@
 // draft step (and later, the review UI) can cite real evidence, not just a
 // number that appeared from nowhere.
 
-const lgtm = require("../../lgtm");
+const lgtm = require("../lgtm");
 const { traceLatencyP99Query, traceErrorRateQuery, logErrorRateQuery } = require("./queries");
 
 const WINDOW = "15m";

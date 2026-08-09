@@ -2,8 +2,8 @@ require("../env");
 
 const express = require("express");
 const path = require("path");
-const store = require("../skills/alert-rules/store");
-const { refreshServiceContext, answerQuestion } = require("../skills/alert-rules/questions");
+const store = require("../shared/store");
+const onboarding = require("../skills/onboarding/run");
 const { runPipeline } = require("../skills/alert-rules/run");
 const { proposeRetune } = require("../skills/alert-rules/tuning");
 
@@ -32,13 +32,13 @@ function recordOutcome(rule, action, extra = {}) {
 // ---- API ----
 
 app.get("/api/state", async (req, res) => {
-  const services = store.load("services", []);
-  const questions = store.load("questions", []);
+  const profiles = store.load("onboarding-profile", []);
+  const onboardingQuestions = store.load("onboarding-questions", []);
   const rules = store.load("rules", []);
   const outcomes = store.load("outcomes", []);
   res.json({
-    services,
-    pendingQuestions: questions.filter((q) => q.status === "pending"),
+    profiles,
+    pendingOnboardingQuestions: onboardingQuestions.filter((q) => q.status === "pending"),
     rules,
     outcomes,
   });
@@ -47,21 +47,35 @@ app.get("/api/state", async (req, res) => {
 app.post("/api/run", async (req, res) => {
   try {
     const hoursBack = Number(req.body?.hoursBack) || 24;
+    await onboarding.refreshOnboarding({ log: () => {} });
     const result = await runPipeline({ hoursBack, log: () => {} });
-    res.json({ ok: true, ruleCount: result.rules.length, pendingQuestionCount: result.pendingQuestions.length });
+    res.json({ ok: true, ruleCount: result.rules.length, waitingOnOnboarding: result.waitingOnOnboarding.length });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-app.post("/api/questions/:id/answer", (req, res) => {
+// ---- Onboarding ----
+
+app.post("/api/onboarding/questions/:id/answer", (req, res) => {
   try {
-    const q = answerQuestion(req.params.id, req.body.answer);
+    const q = onboarding.answerQuestion(req.params.id, req.body.answer);
     res.json({ ok: true, question: q });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message });
   }
 });
+
+app.post("/api/onboarding/profile/:service/confirm", (req, res) => {
+  try {
+    const p = onboarding.confirmProfile(req.params.service);
+    res.json({ ok: true, profile: p });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// ---- Alert Rules ----
 
 app.post("/api/rules/:id/approve", (req, res) => {
   const rules = store.load("rules", []);
@@ -178,10 +192,10 @@ async function retuneSweep() {
 }
 
 app.listen(PORT, async () => {
-  console.log(`Alyva-sre Alert Rules review UI: http://localhost:${PORT}`);
-  console.log("Running initial discovery + draft pipeline...");
+  console.log(`Alyva-sre review UI: http://localhost:${PORT}`);
+  console.log("Running initial onboarding + alert-rules pipeline...");
   try {
-    await refreshServiceContext();
+    await onboarding.refreshOnboarding({ log: console.log });
     await runPipeline({ hoursBack: 24, log: console.log });
   } catch (err) {
     console.error("Initial pipeline run failed:", err.message);

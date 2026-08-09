@@ -41,14 +41,26 @@ context.
 - Every question asked should be answerable in one sentence — if a question needs a paragraph to
   explain, it's not specific enough yet.
 
-## Self-learning contract
+## Self-learning contract — the four-gate promotion test
 
-Each rule's outcome (approved as-is / edited before approval / rejected, and later: did tuning
-converge or keep missing target) is recorded in this skill's outcome memory
-(`data/outcomes.json`). Before drafting a new rule for a service in the same criticality tier,
-the skill checks whether past outcomes for that tier show a consistent human correction pattern
-(e.g., humans always tighten `medium`-tier latency thresholds by ~20%) and leans toward that
-pattern in the next draft — cited as "based on N prior approvals for this tier", not silently.
+Each rule's outcome (approved as-is / edited before approval / rejected) is recorded in
+`data/outcomes.json`. A pattern in that history only gets promoted into how future rules are
+drafted if it clears all four gates — and **no agent decides this; it's pure code**
+(`learnedCorrectionFactor()` in `draft.js`), the same principle this skill already applies to
+tuning direction (never trust the model's own arithmetic on a checkable fact):
+
+1. **Generalizable.** At least 2 prior edits for the same criticality tier + signal type — one
+   data point is an anecdote, not a pattern.
+2. **Material.** The correction ratio must be consistent across those edits (within 25% of each
+   other) — a scattered, inconsistent set of edits isn't a learnable pattern, it's noise.
+3. **Not already captured.** The factor is computed fresh from `outcomes.json` each time, never
+   accumulated/hand-edited — so it can't drift from what the data actually shows.
+4. **Minimal footprint.** The correction multiplies whatever the LLM's raw threshold was, applied
+   deterministically after the fact — it doesn't rewrite the drafting prompt's logic or add a new
+   code path per tier.
+
+When applied, the rationale must say so explicitly ("based on N prior edits for this tier, a Xx
+correction applies") — never silently.
 
 ## Exit criterion for tuning
 
