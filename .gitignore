@@ -5,6 +5,6 @@ node_modules/
 *.log
 .DS_Store
 .next/
-data/alyva.json
+data/*.json
 tsconfig.tsbuildinfo
 .agent-pr-workspace/
