@@ -7,8 +7,9 @@
  * asked for them.
  */
 import { useEffect, useState } from "react";
+import { RunnerStatus, type RunnerState } from "./RunnerStatus";
 
-type Status = "idle" | "running" | "done" | "error";
+type Status = RunnerState;
 
 export function OnboardingRunner({ onDone }: { onDone?: () => void }) {
   const [status, setStatus] = useState<Status>("idle");
@@ -45,13 +46,12 @@ export function OnboardingRunner({ onDone }: { onDone?: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (status === "idle") return null;
+  const label =
+    status === "running"
+      ? "Discovering services from live telemetry…"
+      : status === "error"
+        ? `Onboarding run failed: ${summary}`
+        : summary;
 
-  return (
-    <p className="text-xs text-muted-foreground">
-      {status === "running" && "Discovering services from live telemetry…"}
-      {status === "done" && summary}
-      {status === "error" && `Onboarding run failed: ${summary}`}
-    </p>
-  );
+  return <RunnerStatus state={status} label={label} />;
 }

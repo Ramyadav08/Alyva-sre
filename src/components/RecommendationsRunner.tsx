@@ -2,8 +2,10 @@
 
 /** Fires unprompted on dashboard load, same Agency pattern as the other runners. */
 import { useEffect, useState } from "react";
+import { RunnerStatus, type RunnerState } from "./RunnerStatus";
 
 export function RecommendationsRunner() {
+  const [status, setStatus] = useState<RunnerState>("running");
   const [summary, setSummary] = useState<string | null>(null);
 
   useEffect(() => {
@@ -11,14 +13,26 @@ export function RecommendationsRunner() {
     fetch("/api/dashboard/recommendations/run", { method: "POST" })
       .then((r) => r.json())
       .then((d) => {
-        if (!cancelled) setSummary(d.error ? `Recommendations failed: ${d.error}` : `${d.count} new recommendation(s).`);
+        if (cancelled) return;
+        if (d.error) {
+          setSummary(`Recommendations failed: ${d.error}`);
+          setStatus("error");
+        } else {
+          setSummary(`${d.count} new recommendation(s).`);
+          setStatus("done");
+        }
       })
-      .catch((err) => !cancelled && setSummary(`Recommendations failed: ${err.message}`));
+      .catch((err) => {
+        if (!cancelled) {
+          setSummary(`Recommendations failed: ${err.message}`);
+          setStatus("error");
+        }
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  if (!summary) return null;
-  return <p className="text-xs text-muted-foreground">{summary}</p>;
+  const label = status === "running" ? "Generating recommendations from live traffic patterns…" : summary;
+  return <RunnerStatus state={status} label={label} />;
 }
