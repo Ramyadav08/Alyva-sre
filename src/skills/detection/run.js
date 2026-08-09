@@ -8,6 +8,7 @@ const store = require("../../shared/store");
 const { checkLiveFiring } = require("./liveCheck");
 const { runInvestigation } = require("./investigate");
 const { skepticCheck } = require("./skeptic");
+const customPanel = require("../../dashboard/customPanel");
 
 function loadInvestigations() {
   return store.load("investigations", []);
@@ -55,6 +56,16 @@ async function scanForNewInvestigations({ log = () => {} } = {}) {
     if (!check.firing) continue;
 
     log(`LIVE FIRING: ${rule.service_name}/${rule.signal_type} (${check.live_value} vs threshold ${check.threshold}) — investigating...`);
+
+    // Dashboard, unprompted: the panel appears the moment something's being
+    // looked at, not only once the investigation concludes. No chat message,
+    // no LLM call — service/signal are already ground truth from the rule.
+    try {
+      await customPanel.ensureAutoPanel(rule);
+    } catch (err) {
+      log(`  auto-panel creation failed (non-fatal): ${err.message}`);
+    }
+
     const hint = priorHypothesisHint(rule.service_name);
     const trigger = {
       rule_id: rule.id,
@@ -68,7 +79,20 @@ async function scanForNewInvestigations({ log = () => {} } = {}) {
         : null,
     };
 
-    const { ledger, report, converged, messages } = await runInvestigation(trigger);
+    // A failure here (LLM error, rate limit, etc.) must not lose every
+    // investigation already collected earlier in this same loop — that
+    // was a real bug: nothing persists until the loop finishes, so one
+    // failed rule mid-scan silently dropped all the successful ones before
+    // it. Log and move on to the next rule instead of throwing out of the
+    // whole scan.
+    let investigationResult;
+    try {
+      investigationResult = await runInvestigation(trigger);
+    } catch (err) {
+      log(`  investigation failed for ${rule.service_name}/${rule.signal_type} (non-fatal, skipping this rule): ${err.message}`);
+      continue;
+    }
+    const { ledger, report, converged, messages } = investigationResult;
 
     let skepticReview = null;
     if (converged) {
@@ -101,6 +125,15 @@ async function scanForNewInvestigations({ log = () => {} } = {}) {
   }
 
   store.save("investigations", investigations);
+
+  // Same sweep every scan cycle: drop auto-panels for investigations that
+  // resolved long enough ago to no longer be "what's happening right now."
+  try {
+    customPanel.pruneStaleAutoPanels(investigations);
+  } catch (err) {
+    log(`  auto-panel cleanup failed (non-fatal): ${err.message}`);
+  }
+
   return investigations;
 }
 

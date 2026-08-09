@@ -149,4 +149,85 @@ function getLayout() {
   return store.load("dashboard-layout", []);
 }
 
-module.exports = { draftAndPreview, executePanelSpec, keepPanel, removePanel, getLayout };
+// --- Auto-created panels — no chat prompt, no LLM call -------------------
+// A user has to type into chat to get a panel from draftPanelSpec() above.
+// This path is for the opposite case: the moment Detection's scan finds an
+// approved Alert Rule breaching live (agency, not a click), the exact
+// service + signal that breached is already known ground truth — there is
+// nothing for an LLM to guess, so this builds the spec deterministically
+// and skips the model entirely. Keyed by rule_id so a rule already under
+// investigation never gets a duplicate panel on the next scan cycle.
+
+const AUTO_CATEGORY_BY_SIGNAL = {
+  trace_latency: { category: "trace_latency_p99", chart_type: "timeseries" },
+  trace_error_rate: { category: "trace_error_rate", chart_type: "timeseries" },
+  log_error_rate: { category: "log_error_rate", chart_type: "stat" },
+  // "baseline_anomaly" has no single queryable series of its own — never
+  // force a bad match, same rule draftPanelSpec follows via cannot_fulfill_reason.
+};
+
+/**
+ * Called from Detection's scan the instant a rule is confirmed firing —
+ * before the investigation itself has even converged, so the panel shows
+ * up in real time, not only once there's a conclusion to report.
+ */
+async function ensureAutoPanel(rule) {
+  const panelId = `auto-${rule.id}`;
+  const layout = store.load("dashboard-layout", []);
+  if (layout.some((p) => p.id === panelId)) return layout; // already created for this open investigation
+
+  const mapping = AUTO_CATEGORY_BY_SIGNAL[rule.signal_type];
+  if (!mapping) return layout; // no queryable category for this signal — disclosed via absence, not a bad guess
+
+  const spec = {
+    id: panelId,
+    auto: true,
+    rule_id: rule.id,
+    service_name: rule.service_name,
+    category: mapping.category,
+    chart_type: mapping.chart_type,
+    title: `${rule.service_name} — ${rule.signal_type.replace(/_/g, " ")} (auto — rule breached)`,
+    reason: `Auto-created: approved rule for ${rule.service_name}/${rule.signal_type} breached live.`,
+    created_at: new Date().toISOString(),
+  };
+
+  layout.push(spec);
+  store.save("dashboard-layout", layout);
+  return layout;
+}
+
+/**
+ * Sweeps auto-panels whose investigation has since resolved and aged past
+ * the grace window — keeps the dashboard from accumulating panels for
+ * incidents that are long over, without silently deleting anything still
+ * relevant (open, or resolved recently).
+ */
+const AUTO_PANEL_RETENTION_MS = 2 * 60 * 60 * 1000; // 2h after resolution
+
+function pruneStaleAutoPanels(investigations) {
+  const layout = store.load("dashboard-layout", []);
+  const byRuleId = new Map(investigations.map((inv) => [inv.rule_id, inv]));
+  const now = Date.now();
+
+  const kept = layout.filter((p) => {
+    if (!p.auto) return true; // never touch chat-created panels here
+    const inv = byRuleId.get(p.rule_id);
+    if (!inv) return false; // orphaned — no matching investigation at all, safe to drop
+    if (inv.status !== "resolved") return true; // still open — keep
+    const resolvedAgeMs = now - new Date(inv.resolved_at).getTime();
+    return resolvedAgeMs < AUTO_PANEL_RETENTION_MS;
+  });
+
+  if (kept.length !== layout.length) store.save("dashboard-layout", kept);
+  return kept;
+}
+
+module.exports = {
+  draftAndPreview,
+  executePanelSpec,
+  keepPanel,
+  removePanel,
+  getLayout,
+  ensureAutoPanel,
+  pruneStaleAutoPanels,
+};
