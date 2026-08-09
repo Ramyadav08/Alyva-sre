@@ -95,6 +95,31 @@ async function runInvestigation(trigger, { maxIterations = MAX_ITERATIONS, prior
 
     const reportCall = toolCalls.find((tc) => tc.function.name === "submit_report");
     if (reportCall) {
+      // Structural gate, not just a prompt instruction — found via real
+      // testing that the model will search_traces, get back a small sample
+      // that happens to look clean, and conclude "no errors" without ever
+      // calling get_trace_detail on anything it found. House rule #4 says to
+      // drill in; a prompt instruction alone didn't reliably make that
+      // happen, same lesson as the tuning-direction guard. Block the
+      // conclusion mechanically instead.
+      const foundTraces = ledger.some((e) => e.tool === "search_traces" && (e.result?.traces?.length || 0) > 0);
+      const drilledIn = ledger.some((e) => e.tool === "get_trace_detail");
+      if (foundTraces && !drilledIn) {
+        messages.push({
+          role: "tool",
+          tool_call_id: reportCall.id,
+          content: JSON.stringify({
+            rejected: true,
+            reason:
+              "You found traces via search_traces but never called get_trace_detail on any of them. A trace ID alone is not evidence — call get_trace_detail on at least one real trace before concluding, per house rule #4.",
+          }),
+        });
+        for (const tc of toolCalls) {
+          if (tc.id !== reportCall.id) messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify({ note: "not executed — report was rejected this turn" }) });
+        }
+        continue;
+      }
+
       const report = JSON.parse(reportCall.function.arguments);
       // Every tool_call in this message needs a matching tool response
       // before the conversation can be resumed later (OpenAI API

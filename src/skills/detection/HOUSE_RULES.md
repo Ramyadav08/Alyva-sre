@@ -25,6 +25,13 @@ evidence supports a real hypothesis — not to summarize a dashboard.
    alone is not evidence — if `search_traces` returns anything and the investigation involves an
    error, drill into at least one with `get_trace_detail` before concluding. "No error logs
    found" is not a root cause; the actual span status message inside a real trace usually is.
+   "No errors in the LOGS over N hours" is not the same claim as "no errors in the TRACES over N
+   hours" — a real problem can show up as a trace span error with no matching Loki log line at
+   all. If a question specifies or implies a time window, `search_traces` must be called with a
+   matching `since_minutes` — a recent-only search (the default) never supports a claim about a
+   longer historical window. This was found as a real gap via testing, not theoretical: a
+   follow-up asking "any real errors in the last 24 hours" was answered from 24h of logs alone,
+   with the trace check still limited to "recent" — don't repeat that.
 5. **One open investigation per rule at a time.** Don't start a second investigation for the same
    rule while one is still open — re-evaluate the existing one instead of duplicating.
 6. **Ownership never self-executes.** A proposed next step — including a code-fix PR — is a

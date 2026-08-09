@@ -39,12 +39,13 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "search_traces",
-      description: "Search Tempo for recent traces matching a tag filter (e.g. 'service.name=checkout'). Use to find a real trace showing the actual request path/error.",
+      description: "Search Tempo for traces matching a tag filter (e.g. 'service.name=checkout'). Without since_minutes, only searches RECENT traces — a 'no errors' conclusion based on that alone does NOT cover a longer window a question might be asking about (e.g. 'in the last 24 hours'). Set since_minutes explicitly whenever the question specifies or implies a time window; do not conclude 'no errors in N hours' from a recent-only search.",
       parameters: {
         type: "object",
         properties: {
           tag_filter: { type: "string", description: "Tempo tag filter, e.g. 'service.name=checkout'." },
           limit: { type: "number", description: "Max traces to return. Default 5." },
+          since_minutes: { type: "number", description: "If set, searches this many minutes back instead of just recent traces." },
         },
         required: ["tag_filter"],
       },
@@ -97,9 +98,21 @@ const EXECUTORS = {
     const result = await lgtm.queryLogs(logql, since_minutes || 15, 50);
     return { logql, since_minutes: since_minutes || 15, result: result.data };
   },
-  async search_traces({ tag_filter, limit }) {
+  async search_traces({ tag_filter, limit, since_minutes }) {
+    if (since_minutes) {
+      // A longer window needs a bigger sample by default — 5 traces out of
+      // a real 24h window is a coin-flip, not evidence. Found via testing:
+      // a 5-trace sample happened to be clean and the model concluded "no
+      // errors in 24h" from it. Scale the default with the window instead
+      // of leaving it at the "recent" default.
+      const defaultLimit = since_minutes > 180 ? 30 : since_minutes > 30 ? 15 : 5;
+      const end = Math.floor(Date.now() / 1000);
+      const start = end - since_minutes * 60;
+      const result = await lgtm.searchTracesRange(tag_filter, start, end, limit || defaultLimit);
+      return { tag_filter, since_minutes, sample_size: (result.traces || []).length, traces: result.traces || [] };
+    }
     const result = await lgtm.searchTraces(tag_filter, limit || 5);
-    return { tag_filter, traces: result.traces || [] };
+    return { tag_filter, traces: result.traces || [], note: "recent traces only — no since_minutes given" };
   },
   async get_trace_detail({ trace_id }) {
     return await lgtm.getTraceDetail(trace_id);
