@@ -9,10 +9,13 @@
 import { useEffect, useState } from "react";
 import type { Question } from "@/lib/models";
 
+const VISIBLE_DEFAULT = 3;
+
 export function QuestionsBanner() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [showAll, setShowAll] = useState(false);
 
   async function refresh() {
     const res = await fetch("/api/questions");
@@ -22,6 +25,8 @@ export function QuestionsBanner() {
 
   useEffect(() => {
     refresh();
+    const interval = setInterval(refresh, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   async function submit(id: string) {
@@ -38,6 +43,9 @@ export function QuestionsBanner() {
 
   if (questions.length === 0) return null;
 
+  const visible = showAll ? questions : questions.slice(0, VISIBLE_DEFAULT);
+  const hiddenCount = questions.length - visible.length;
+
   return (
     <div className="rounded-md border border-brand/40 bg-brand/5 p-3">
       <p className="text-sm font-medium text-foreground">
@@ -45,7 +53,7 @@ export function QuestionsBanner() {
         input before Alyva can finish reasoning about this.
       </p>
       <ul className="mt-2 space-y-2">
-        {questions.map((q) => (
+        {visible.map((q) => (
           <li key={q.id} className="rounded border border-border bg-card p-2 text-sm">
             <button
               className="text-left w-full font-medium"
@@ -84,6 +92,16 @@ export function QuestionsBanner() {
           </li>
         ))}
       </ul>
+      {hiddenCount > 0 && (
+        <button className="mt-2 text-xs text-muted-foreground underline" onClick={() => setShowAll(true)}>
+          Show {hiddenCount} more
+        </button>
+      )}
+      {showAll && questions.length > VISIBLE_DEFAULT && (
+        <button className="mt-2 text-xs text-muted-foreground underline" onClick={() => setShowAll(false)}>
+          Show fewer
+        </button>
+      )}
     </div>
   );
 }

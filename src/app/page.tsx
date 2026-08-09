@@ -1,5 +1,8 @@
 import { Logo } from "@/components/Logo";
 import { QuestionsBanner } from "@/components/QuestionsBanner";
+import { OnboardingRunner } from "@/components/OnboardingRunner";
+import { OnboardedServices } from "@/components/OnboardedServices";
+import { ProposalReviewList } from "@/components/ProposalReviewList";
 
 export default function DashboardPage() {
   return (
@@ -9,9 +12,12 @@ export default function DashboardPage() {
           <Logo />
           <span className="text-sm text-muted-foreground">Alyva — AI-native SRE</span>
         </div>
+        <OnboardingRunner />
       </header>
-      <div className="mx-auto max-w-5xl space-y-4 px-6 py-6">
+      <div className="mx-auto max-w-5xl space-y-6 px-6 py-6">
         <QuestionsBanner />
+        <ProposalReviewList kind="profile_field" title="Onboarding — confirm service profiles" />
+        <OnboardedServices />
         {/* Business Impact + Top Latency panels land here — see task #5 */}
         <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           Dashboard panels come online once onboarding discovers at least one service.

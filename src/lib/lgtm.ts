@@ -247,12 +247,36 @@ export async function getServiceHealth(serviceName: string): Promise<ServiceHeal
   };
 }
 
-/** Distinct service names currently emitting traces — the discovery seed list. */
-export async function listActiveServiceNames(traceLimit = 50): Promise<string[]> {
-  const traces = await searchTraces("", traceLimit);
+/**
+ * Tempo emits this literal placeholder as `rootServiceName` when a trace's
+ * root span hasn't been ingested yet — it is not a real service, and must
+ * never be treated as one (a discovered "service" that's actually a data
+ * artifact would be exactly the kind of ungrounded claim Auditability
+ * forbids).
+ */
+const TEMPO_ROOT_SPAN_PLACEHOLDER = "<root span not yet received>";
+
+/**
+ * Distinct service names currently observed — the discovery seed list.
+ * Deliberately the union of trace *roots* (from Tempo search) and every
+ * node that appears anywhere in the service graph (from
+ * getServiceTrafficEdges), not roots alone: a service that's only ever
+ * called as a child span (e.g. `cart`, `checkout`, `payment` behind
+ * `frontend-web`) would otherwise never surface at all.
+ */
+export async function listActiveServiceNames(traceLimit = 50, precomputedEdges?: TrafficEdge[]): Promise<string[]> {
+  const [traces, edges] = await Promise.all([
+    searchTraces("", traceLimit),
+    precomputedEdges ? Promise.resolve(precomputedEdges) : getServiceTrafficEdges(60, traceLimit),
+  ]);
   const names = new Set<string>();
   for (const t of traces) {
-    if (t.rootServiceName) names.add(t.rootServiceName);
+    if (t.rootServiceName && t.rootServiceName !== TEMPO_ROOT_SPAN_PLACEHOLDER) names.add(t.rootServiceName);
   }
+  for (const e of edges) {
+    names.add(e.source);
+    names.add(e.target);
+  }
+  names.delete(TEMPO_ROOT_SPAN_PLACEHOLDER);
   return Array.from(names);
 }
