@@ -5,8 +5,8 @@
 // just evaluated over the past instead of continuously.
 
 const lgtm = require("../../lgtm");
-const { buildQueryForRule, traceErrorRateQuery, logErrorRateQuery } = require("./queries");
-const { lokiServiceLabel } = require("./baseline");
+const { buildQueryForRule, traceErrorRateQuery, logErrorRateQuery } = require("../../shared/queries");
+const { lokiServiceLabel } = require("../../shared/baseline");
 
 const ACCEPTABLE_TIME_ABOVE_THRESHOLD = 0.05; // house-rule target: <5% of the backtest window
 const CORROBORATION_TOLERANCE_SEC_MULT = 2; // how close a corroborating sample must be to a firing sample

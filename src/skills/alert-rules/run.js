@@ -1,10 +1,17 @@
-// Orchestrator for the Alert Rules skill's discover -> draft -> backtest ->
-// tune pipeline. This is what the scheduler (agency — runs on its own, not
-// on a button click) and the CLI both call.
+// Orchestrator for the Alert Rules skill's draft -> backtest -> tune
+// pipeline. This is what the scheduler (agency — runs on its own, not on a
+// button click) and the CLI both call.
+//
+// Service discovery + criticality resolution is now Onboarding's job, not
+// this skill's — this skill reads the Project Profile Onboarding produces
+// instead of running its own discovery or asking its own criticality
+// questions (see onboarding/HOUSE_RULES.md: "What other skills read from
+// here"). A service with no resolved criticality in that profile yet is
+// skipped with "waiting on onboarding", never a duplicate question.
 
-const store = require("./store");
-const { refreshServiceContext } = require("./questions");
-const { computeBaseline } = require("./baseline");
+const store = require("../../shared/store");
+const { getProfiles } = require("../onboarding/profile");
+const { computeBaseline } = require("../../shared/baseline");
 const { draftRulesForService } = require("./draft");
 const { refineDraftViaBacktest } = require("./tuning");
 
@@ -13,22 +20,18 @@ function outcomesForTier(criticality) {
   return outcomes.filter((o) => o.criticality === criticality);
 }
 
-/**
- * Runs the full pipeline for every service that has a resolved criticality
- * (real telemetry label or an already-answered question). Services still
- * waiting on a pending question are skipped — per house rule #2, never
- * guess criticality to force a draft through.
- */
 async function runPipeline({ hoursBack = 24, log = console.log, serviceFilter = null } = {}) {
-  const { services, pendingQuestions } = await refreshServiceContext();
+  const profiles = getProfiles();
 
-  if (pendingQuestions.length) {
-    log(`${pendingQuestions.length} question(s) pending — skipping drafting for those services until answered:`);
-    pendingQuestions.forEach((q) => log(`  [${q.id}] ${q.question}`));
+  const waitingOnOnboarding = profiles.filter((p) => !p.service_criticality);
+  if (waitingOnOnboarding.length) {
+    log(`${waitingOnOnboarding.length} service(s) waiting on Onboarding (no resolved criticality yet) — skipping:`);
+    waitingOnOnboarding.forEach((p) => log(`  ${p.service_name}`));
   }
 
-  let readyServices = services.filter((s) => s.service_criticality);
+  let readyServices = profiles.filter((p) => p.service_criticality);
   if (serviceFilter) readyServices = readyServices.filter((s) => serviceFilter.includes(s.service_name));
+
   const existingRules = store.load("rules", []);
   const rulesByService = new Map();
   for (const r of existingRules) {
@@ -47,7 +50,8 @@ async function runPipeline({ hoursBack = 24, log = console.log, serviceFilter = 
     log(`Drafting rules for ${svc.service_name} (criticality: ${svc.service_criticality})...`);
     const baseline = await computeBaseline(svc.service_name);
     const priorOutcomes = outcomesForTier(svc.service_criticality);
-    const drafts = await draftRulesForService(svc, baseline, priorOutcomes);
+    const serviceProfile = { service_name: svc.service_name, service_criticality: svc.service_criticality, criticality_source: svc.criticality_source };
+    const drafts = await draftRulesForService(serviceProfile, baseline, priorOutcomes);
 
     for (const draft of drafts) {
       if (draft.status === "needs_input") {
@@ -61,7 +65,7 @@ async function runPipeline({ hoursBack = 24, log = console.log, serviceFilter = 
   }
 
   store.save("rules", allRules);
-  return { services, pendingQuestions, rules: allRules };
+  return { profiles, waitingOnOnboarding, rules: allRules };
 }
 
 module.exports = { runPipeline };
@@ -70,7 +74,7 @@ if (require.main === module) {
   require("../../env");
   runPipeline()
     .then((r) => {
-      console.log(`\nDone. ${r.rules.length} rule(s) total, ${r.pendingQuestions.length} pending question(s).`);
+      console.log(`\nDone. ${r.rules.length} rule(s) total, ${r.waitingOnOnboarding.length} waiting on onboarding.`);
     })
     .catch((err) => {
       console.error("Pipeline failed:", err);

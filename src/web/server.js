@@ -2,10 +2,19 @@ require("../env");
 
 const express = require("express");
 const path = require("path");
-const store = require("../skills/alert-rules/store");
-const { refreshServiceContext, answerQuestion } = require("../skills/alert-rules/questions");
+const store = require("../shared/store");
+const onboarding = require("../skills/onboarding/run");
 const { runPipeline } = require("../skills/alert-rules/run");
 const { proposeRetune } = require("../skills/alert-rules/tuning");
+const detection = require("../skills/detection/run");
+const { proposePR } = require("../skills/detection/proposals");
+const { buildServiceGraph } = require("../dashboard/serviceGraph");
+const { buildBusinessImpactSummary } = require("../dashboard/businessImpact");
+const { buildRecommendations } = require("../dashboard/recommendations");
+const customPanel = require("../dashboard/customPanel");
+const traceExplorer = require("../dashboard/traceExplorer");
+const observability = require("../dashboard/observability");
+const chatbot = require("../dashboard/chatbot");
 
 const app = express();
 app.use(express.json());
@@ -13,6 +22,18 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 4310;
 const RETUNE_INTERVAL_MS = Number(process.env.RETUNE_INTERVAL_MS || 10 * 60 * 1000); // 10 min, agency: runs on its own
+const DETECTION_SCAN_INTERVAL_MS = Number(process.env.DETECTION_SCAN_INTERVAL_MS || 2 * 60 * 1000); // 2 min
+const SERVICE_GRAPH_INTERVAL_MS = Number(process.env.SERVICE_GRAPH_INTERVAL_MS || 3 * 60 * 1000); // 3 min
+const ONBOARDING_REFRESH_INTERVAL_MS = Number(process.env.ONBOARDING_REFRESH_INTERVAL_MS || 2 * 60 * 1000); // 2 min
+
+// Service graph takes ~5s to compute (samples real traces across every
+// service) — cached and refreshed on an interval rather than recomputed on
+// every dashboard poll.
+let cachedServiceGraph = { edges: [], excluded: [], traces_sampled: 0, services_sampled: 0, computed_at: null };
+async function refreshServiceGraph() {
+  const result = await buildServiceGraph({});
+  cachedServiceGraph = { ...result, computed_at: new Date().toISOString() };
+}
 
 function recordOutcome(rule, action, extra = {}) {
   const outcomes = store.load("outcomes", []);
@@ -32,36 +53,216 @@ function recordOutcome(rule, action, extra = {}) {
 // ---- API ----
 
 app.get("/api/state", async (req, res) => {
-  const services = store.load("services", []);
-  const questions = store.load("questions", []);
+  const profiles = store.load("onboarding-profile", []);
+  const onboardingQuestions = store.load("onboarding-questions", []);
   const rules = store.load("rules", []);
   const outcomes = store.load("outcomes", []);
+  const investigations = detection.loadInvestigations();
   res.json({
-    services,
-    pendingQuestions: questions.filter((q) => q.status === "pending"),
+    profiles,
+    pendingOnboardingQuestions: onboardingQuestions.filter((q) => q.status === "pending"),
     rules,
     outcomes,
+    investigations,
   });
 });
 
 app.post("/api/run", async (req, res) => {
   try {
     const hoursBack = Number(req.body?.hoursBack) || 24;
+    await onboarding.refreshOnboarding({ log: () => {} });
     const result = await runPipeline({ hoursBack, log: () => {} });
-    res.json({ ok: true, ruleCount: result.rules.length, pendingQuestionCount: result.pendingQuestions.length });
+    res.json({ ok: true, ruleCount: result.rules.length, waitingOnOnboarding: result.waitingOnOnboarding.length });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-app.post("/api/questions/:id/answer", (req, res) => {
+// ---- Onboarding ----
+
+app.post("/api/onboarding/questions/:id/answer", (req, res) => {
   try {
-    const q = answerQuestion(req.params.id, req.body.answer);
+    const q = onboarding.answerQuestion(req.params.id, req.body.answer);
     res.json({ ok: true, question: q });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message });
   }
 });
+
+app.post("/api/onboarding/profile/:service/confirm", (req, res) => {
+  try {
+    const p = onboarding.confirmProfile(req.params.service);
+    res.json({ ok: true, profile: p });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// ---- Dashboard ----
+
+app.get("/api/dashboard/state", (req, res) => {
+  res.json({
+    businessImpact: buildBusinessImpactSummary(),
+    serviceGraph: cachedServiceGraph,
+    recommendations: buildRecommendations({ limit: 10 }),
+    layout: customPanel.getLayout(),
+  });
+});
+
+app.post("/api/dashboard/custom-panel/draft", async (req, res) => {
+  try {
+    const result = await customPanel.draftAndPreview(req.body.request);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post("/api/dashboard/custom-panel/keep", (req, res) => {
+  try {
+    const layout = customPanel.keepPanel(req.body.spec);
+    res.json({ ok: true, layout });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.post("/api/dashboard/custom-panel/:id/remove", (req, res) => {
+  const layout = customPanel.removePanel(req.params.id);
+  res.json({ ok: true, layout });
+});
+
+app.post("/api/dashboard/custom-panel/:id/refresh", async (req, res) => {
+  const layout = customPanel.getLayout();
+  const panel = layout.find((p) => p.id === req.params.id);
+  if (!panel) return res.status(404).json({ ok: false, error: "No such panel" });
+  const data = await customPanel.executePanelSpec(panel);
+  res.json({ ok: true, data });
+});
+
+// Real entity list for the shared filter bar — no node/namespace/pod exists
+// in this environment; this is the honest equivalent (service_name/container_name union).
+app.get("/api/dashboard/entities", async (req, res) => {
+  try {
+    const entities = await observability.listEntities();
+    res.json({ ok: true, entities });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Raw observability overview — real metrics/traces/logs, leads the dashboard.
+// ?entity=<name> switches from the top-N ranking view to a focused
+// single-entity time-series view; ?range=<minutes> sets the shared window.
+app.get("/api/dashboard/observability", async (req, res) => {
+  const entity = req.query.entity && req.query.entity !== "all" ? req.query.entity : null;
+  const rangeMinutes = Number(req.query.range) || 60;
+  try {
+    if (entity) {
+      const [metrics, traces, logs] = await Promise.all([
+        observability.entityMetricsTimeseries(entity, rangeMinutes),
+        observability.recentTracesAcrossServices(10, { serviceFilter: entity, rangeMinutes }),
+        observability.recentErrorLogs(10, { serviceFilter: entity, rangeMinutes }),
+      ]);
+      const health = await observability.recentlyUnhealthy();
+      return res.json({ ok: true, mode: "entity", metrics, health, traces, logs });
+    }
+    const [cpu, memory, health, traces, logs] = await Promise.all([
+      observability.topContainersByCpu(10),
+      observability.topContainersByMemory(10),
+      observability.recentlyUnhealthy(),
+      observability.recentTracesAcrossServices(10, { rangeMinutes }),
+      observability.recentErrorLogs(10, { rangeMinutes }),
+    ]);
+    res.json({ ok: true, mode: "all", cpu, memory, health, traces, logs });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// General-purpose ops chatbot.
+app.post("/api/dashboard/chat", async (req, res) => {
+  try {
+    const result = await chatbot.sendMessage(req.body.message);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get("/api/dashboard/chat/history", (req, res) => {
+  res.json({ ok: true, messages: chatbot.getConversation() });
+});
+
+app.post("/api/dashboard/chat/reset", (req, res) => {
+  chatbot.resetConversation();
+  res.json({ ok: true });
+});
+
+// Standalone trace explorer — independent of any investigation.
+app.get("/api/dashboard/traces", async (req, res) => {
+  try {
+    const traces = await traceExplorer.searchRecentTraces(req.query.service, Number(req.query.limit) || 10);
+    res.json({ ok: true, traces });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post("/api/dashboard/traces/:traceId/ask", async (req, res) => {
+  try {
+    const result = await traceExplorer.askAboutTrace(req.params.traceId, req.body.question);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Ownership: opens a real PR for a code fix. Only runs on explicit human
+// trigger for a specific investigation — never on a schedule (house rule
+// #6, "ownership never self-executes").
+app.post("/api/investigations/:id/propose-pr", async (req, res) => {
+  try {
+    const investigations = detection.loadInvestigations();
+    const inv = investigations.find((i) => i.id === req.params.id);
+    if (!inv) return res.status(404).json({ ok: false, error: "No such investigation" });
+    const result = proposePR(inv, { dryRun: req.body?.dryRun !== false });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// ---- Detection & RCA ----
+
+app.post("/api/investigations/:id/followup", async (req, res) => {
+  try {
+    const inv = await detection.askFollowUp(req.params.id, req.body.question);
+    res.json({ ok: true, investigation: inv });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.post("/api/investigations/:id/resolve", (req, res) => {
+  try {
+    const inv = detection.resolveInvestigation(req.params.id, req.body.note, req.body.root_cause_tag);
+    res.json({ ok: true, investigation: inv });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.post("/api/investigations/scan", async (req, res) => {
+  try {
+    const investigations = await detection.scanForNewInvestigations({ log: () => {} });
+    res.json({ ok: true, count: investigations.length });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ---- Alert Rules ----
 
 app.post("/api/rules/:id/approve", (req, res) => {
   const rules = store.load("rules", []);
@@ -178,15 +379,44 @@ async function retuneSweep() {
 }
 
 app.listen(PORT, async () => {
-  console.log(`Alyva-sre Alert Rules review UI: http://localhost:${PORT}`);
-  console.log("Running initial discovery + draft pipeline...");
+  console.log(`Alyva-sre review UI: http://localhost:${PORT}`);
+  console.log("Running initial onboarding + alert-rules pipeline...");
   try {
-    await refreshServiceContext();
+    await onboarding.refreshOnboarding({ log: console.log });
     await runPipeline({ hoursBack: 24, log: console.log });
   } catch (err) {
     console.error("Initial pipeline run failed:", err.message);
   }
+  try {
+    await detection.scanForNewInvestigations({ log: console.log });
+  } catch (err) {
+    console.error("Initial detection scan failed:", err.message);
+  }
+  try {
+    await refreshServiceGraph();
+    console.log(`Service graph: ${cachedServiceGraph.edges.length} edge(s) from ${cachedServiceGraph.traces_sampled} sampled traces.`);
+  } catch (err) {
+    console.error("Initial service graph build failed:", err.message);
+  }
   setInterval(() => {
     retuneSweep().catch((err) => console.error("Retune sweep failed:", err.message));
   }, RETUNE_INTERVAL_MS);
+  setInterval(() => {
+    detection.scanForNewInvestigations({ log: console.log }).catch((err) => console.error("Detection scan failed:", err.message));
+  }, DETECTION_SCAN_INTERVAL_MS);
+  setInterval(() => {
+    refreshServiceGraph().catch((err) => console.error("Service graph refresh failed:", err.message));
+  }, SERVICE_GRAPH_INTERVAL_MS);
+  // Agency gap found via a real walkthrough test: answering an onboarding
+  // question only updated the Project Profile on the NEXT full pipeline
+  // run, which previously only happened at startup or a manual /api/run —
+  // meaning the dashboard silently went stale between answers. Chains into
+  // Alert Rules too, since a newly-resolved service should get drafted for
+  // without a human having to trigger anything.
+  setInterval(() => {
+    onboarding
+      .refreshOnboarding({ log: () => {} })
+      .then(() => runPipeline({ hoursBack: 24, log: () => {} }))
+      .catch((err) => console.error("Onboarding refresh failed:", err.message));
+  }, ONBOARDING_REFRESH_INTERVAL_MS);
 });
