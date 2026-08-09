@@ -3,6 +3,8 @@ import { QuestionsBanner } from "@/components/QuestionsBanner";
 import { OnboardingRunner } from "@/components/OnboardingRunner";
 import { OnboardedServices } from "@/components/OnboardedServices";
 import { ProposalReviewList } from "@/components/ProposalReviewList";
+import { BusinessImpactPanel } from "@/components/BusinessImpactPanel";
+import { TopLatencyPanel } from "@/components/TopLatencyPanel";
 
 export default function DashboardPage() {
   return (
@@ -17,11 +19,11 @@ export default function DashboardPage() {
       <div className="mx-auto max-w-5xl space-y-6 px-6 py-6">
         <QuestionsBanner />
         <ProposalReviewList kind="profile_field" title="Onboarding — confirm service profiles" />
-        <OnboardedServices />
-        {/* Business Impact + Top Latency panels land here — see task #5 */}
-        <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          Dashboard panels come online once onboarding discovers at least one service.
+        <div className="grid gap-4 sm:grid-cols-2">
+          <BusinessImpactPanel />
+          <TopLatencyPanel />
         </div>
+        <OnboardedServices />
       </div>
     </main>
   );

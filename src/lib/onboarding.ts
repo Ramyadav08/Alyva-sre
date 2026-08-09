@@ -11,7 +11,7 @@
  * plausibly revenue-bearing? has enough been answered to finalize?)
  * something the LLM call is decorative for, not load-bearing.
  */
-import { getServiceHealth, getServiceTrafficEdges, listActiveServiceNames } from "./lgtm";
+import { getServiceCriticalityLabel, getServiceHealth, getServiceTrafficEdges, listActiveServiceNames } from "./lgtm";
 import { getDb, nowIso } from "./store";
 import { askQuestion, listUnanswered } from "./questions";
 import { createProposal } from "./proposals";
@@ -25,12 +25,12 @@ export async function discoverServices(): Promise<{ discoveredCount: number; tot
   // name set from a traffic-edge walk, so re-fetching edges here would
   // double the Tempo work for no benefit.
   const edges = await getServiceTrafficEdges();
-  const names = await listActiveServiceNames(50, edges);
+  const names = await listActiveServiceNames(150, edges);
   const now = nowIso();
   let discoveredCount = 0;
 
   for (const name of names) {
-    const health = await getServiceHealth(name);
+    const [health, criticalityLabel] = await Promise.all([getServiceHealth(name), getServiceCriticalityLabel(name)]);
     const upstream = edges.filter((e) => e.target === name).map((e) => e.source);
     const downstream = edges.filter((e) => e.source === name).map((e) => e.target);
 
@@ -55,6 +55,14 @@ export async function discoverServices(): Promise<{ discoveredCount: number; tot
         type: "metric",
         query: `error-rate ratio for service_name="${name}"`,
         summary: `error rate = ${health.errorRatePercent.toFixed(2)}%`,
+        observedAt: now,
+      });
+    }
+    if (criticalityLabel !== null) {
+      evidence.push({
+        type: "metric",
+        query: `traces_span_metrics_calls_total{service_name="${name}"} resource attribute service_criticality`,
+        summary: `service already tagged service_criticality="${criticalityLabel}" in its own telemetry`,
         observedAt: now,
       });
     }

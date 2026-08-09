@@ -53,6 +53,10 @@ before treating anything as final. It never guesses a business fact it wasn't to
 
 ## Best practices
 
+- If discovery evidence already shows a real `service_criticality` telemetry label for a
+  service, treat that as strong evidence for tier — don't re-ask a human to reclassify from
+  scratch. Still ask for whatever the label can't answer (owning team, revenue $ figures);
+  finalize with tier informed by the label plus whatever the human adds, not the label alone.
 - Open every interview question with the evidence that prompted it — a question that doesn't
   reference what was actually observed reads as a form, not a real interview.
 - Keep the confirm Proposal's summary short enough to scan in one glance; the full evidence list

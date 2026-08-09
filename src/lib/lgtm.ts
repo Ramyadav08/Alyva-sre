@@ -147,7 +147,7 @@ export type TrafficEdge = {
  * source for the dashboard's "top services by inter-service call latency"
  * panel, and for onboarding's dependency-graph discovery.
  */
-export async function getServiceTrafficEdges(windowMinutes = 60, traceLimit = 50): Promise<TrafficEdge[]> {
+export async function getServiceTrafficEdges(windowMinutes = 60, traceLimit = 150): Promise<TrafficEdge[]> {
   const traces = await searchTraces("", traceLimit);
   const edgeKey = (a: string, b: string) => `${a}→${b}`;
   const edges = new Map<string, TrafficEdge>();
@@ -212,6 +212,29 @@ export async function getServiceTrafficEdges(windowMinutes = 60, traceLimit = 50
   return Array.from(edges.values()).sort((a, b) => b.avgLatencyMs - a.avgLatencyMs);
 }
 
+/**
+ * Real resource attribute this stack's OTel Demo already emits on some
+ * services' span-metrics ("service_criticality": critical|high|medium|low)
+ * — confirmed present for most services (checkout/frontend/payment=critical,
+ * cart/currency/shipping/product-catalog=high, etc.), absent for a few
+ * (frontend-web, image-provider, telemetry-docs). Ported from Ramya's
+ * discoverServices() in src/lgtm.js, which uses this as its sole criticality
+ * source. Real telemetry, not a guess — when present, this is strictly
+ * better evidence than asking a human to reclassify from scratch, so
+ * onboarding's interview step is given this as evidence rather than
+ * skipped entirely (the label alone doesn't give owning team or revenue
+ * $ figures, which still need a real answer).
+ */
+export async function getServiceCriticalityLabel(serviceName: string): Promise<string | null> {
+  const escaped = serviceName.replace(/"/g, '\\"');
+  const vector = await queryInstantVector(`traces_span_metrics_calls_total{service_name="${escaped}"}`);
+  for (const entry of vector) {
+    const label = entry.metric.service_criticality;
+    if (label) return label;
+  }
+  return null;
+}
+
 export type ServiceHealth = {
   errorRatePercent: number | null;
   latencyP95Ms: number | null;
@@ -220,23 +243,31 @@ export type ServiceHealth = {
 };
 
 /**
- * Best-effort per-service health from metrics — deliberately best-effort:
- * OTel semantic-convention metric names vary by SDK/version, so every call
- * degrades to null on failure rather than guessing. The service graph
- * (getServiceTrafficEdges) is the more reliable signal and should be
- * preferred wherever both are available.
+ * Per-service health from span-metrics (`traces_span_metrics_*`), not the
+ * HTTP-server metric family. This was a real, confirmed bug, not a
+ * defensive guess: `payment` (a pure gRPC backend, no HTTP server at all)
+ * has zero `http_server_request_duration_seconds_*` series — so the
+ * previous HTTP-only version could never see it, or any other backend
+ * service with no inbound HTTP listener. `traces_span_metrics_*` is
+ * derived from spans by the OTel Collector's span-metrics connector and
+ * exists for every instrumented service regardless of transport (HTTP or
+ * gRPC) — verified present for all 18 real services on this stack. Same
+ * metric family and error query Ramya's alert-rules skill uses
+ * (src/skills/alert-rules/queries.js) — kept consistent on purpose so
+ * onboarding's live-health check and Milestone 2's baseline/backtest
+ * agree on what "the error rate" means for a given service.
  */
 export async function getServiceHealth(serviceName: string): Promise<ServiceHealth> {
   const escaped = serviceName.replace(/"/g, '\\"');
   const [p95, p99, errorRate] = await Promise.all([
     queryMetricInstant(
-      `histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket{service_name="${escaped}"}[5m])) by (le))`,
+      `histogram_quantile(0.95, sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name="${escaped}"}[5m])) by (le))`,
     ),
     queryMetricInstant(
-      `histogram_quantile(0.99, sum(rate(http_server_duration_milliseconds_bucket{service_name="${escaped}"}[5m])) by (le))`,
+      `histogram_quantile(0.99, sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name="${escaped}"}[5m])) by (le))`,
     ),
     queryMetricInstant(
-      `100 * sum(rate(http_server_duration_milliseconds_count{service_name="${escaped}",http_status_code=~"5.."}[5m])) / sum(rate(http_server_duration_milliseconds_count{service_name="${escaped}"}[5m]))`,
+      `100 * sum(rate(traces_span_metrics_calls_total{service_name="${escaped}",status_code="STATUS_CODE_ERROR"}[5m])) / clamp_min(sum(rate(traces_span_metrics_calls_total{service_name="${escaped}"}[5m])), 0.0001)`,
     ),
   ]);
   return {
@@ -264,12 +295,34 @@ const TEMPO_ROOT_SPAN_PLACEHOLDER = "<root span not yet received>";
  * called as a child span (e.g. `cart`, `checkout`, `payment` behind
  * `frontend-web`) would otherwise never surface at all.
  */
-export async function listActiveServiceNames(traceLimit = 50, precomputedEdges?: TrafficEdge[]): Promise<string[]> {
-  const [traces, edges] = await Promise.all([
+/**
+ * The authoritative service list: Mimir's span-metrics series
+ * (`traces_span_metrics_calls_total`) carries a `service_name` label for
+ * every service that has ever emitted a span in the retention window,
+ * regardless of how much traffic it gets. Verified empirically necessary,
+ * not a guess — a real low-traffic service (`payment`, mid-incident, one
+ * ten-minute-long hung trace) was confirmed to exist via Tempo's own
+ * tag-filtered search, but never appeared in a 150-trace *general* Tempo
+ * search sample, because general search is biased toward whatever's
+ * recent and high-volume. This is the fix: don't rely on sampling to find
+ * out what exists.
+ */
+async function listAllServiceNamesFromMetrics(): Promise<string[]> {
+  const series = await querySeries("traces_span_metrics_calls_total");
+  const names = new Set<string>();
+  for (const labels of series) {
+    if (labels.service_name) names.add(labels.service_name);
+  }
+  return Array.from(names);
+}
+
+export async function listActiveServiceNames(traceLimit = 150, precomputedEdges?: TrafficEdge[]): Promise<string[]> {
+  const [metricNames, traces, edges] = await Promise.all([
+    listAllServiceNamesFromMetrics(),
     searchTraces("", traceLimit),
     precomputedEdges ? Promise.resolve(precomputedEdges) : getServiceTrafficEdges(60, traceLimit),
   ]);
-  const names = new Set<string>();
+  const names = new Set<string>(metricNames);
   for (const t of traces) {
     if (t.rootServiceName && t.rootServiceName !== TEMPO_ROOT_SPAN_PLACEHOLDER) names.add(t.rootServiceName);
   }
