@@ -97,13 +97,17 @@ function proposePR(investigation, { dryRun = true } = {}) {
 
     let prUrl = null;
     let prError = null;
+    const bodyFile = path.join(REPO_ROOT, ".pr-body-tmp.md");
     try {
-      const bodyFile = path.join(REPO_ROOT, ".pr-body-tmp.md");
       fs.writeFileSync(bodyFile, content);
       prUrl = sh(`gh pr create --title ${JSON.stringify(title)} --body-file ${bodyFile} --base main --head ${branch}`);
-      fs.unlinkSync(bodyFile);
     } catch (err) {
       prError = err.message;
+    } finally {
+      // Must run whether gh succeeded or failed — this leaked on the
+      // failure path until a real test (no gh auth in this environment)
+      // caught it.
+      if (fs.existsSync(bodyFile)) fs.unlinkSync(bodyFile);
     }
 
     return {
