@@ -9,6 +9,7 @@ import { getServiceCriticalityLabel } from "../lgtm";
 import { getDb, nowIso } from "../store";
 import { askQuestion, listUnanswered } from "../questions";
 import { createProposal } from "../proposals";
+import { listActivePolicies } from "../alert-policies";
 import { computeBaseline } from "./baseline";
 import { draftRulesForService, BASELINE_ANOMALY_MARKER } from "./draft";
 import { refineDraftViaBacktest } from "./tuning";
@@ -95,6 +96,12 @@ export async function runAlertRulesCycle() {
 
       const refined = await refineDraftViaBacktest(rule, { hoursBack: 24 });
       const evidence = evidenceFromBaseline(profile.serviceId, baseline);
+      if (rule.appliedPolicyIds.length > 0) {
+        const appliedPolicies = (await listActivePolicies()).filter((p) => rule.appliedPolicyIds.includes(p.id));
+        for (const policy of appliedPolicies) {
+          evidence.push({ type: "log", query: `alertPolicies/${policy.id}`, summary: `policy applied: "${policy.text}"`, observedAt: nowIso() });
+        }
+      }
       const payload: AlertRulePayload = {
         serviceId: rule.serviceId,
         signalType: rule.signalType,
@@ -106,6 +113,8 @@ export async function runAlertRulesCycle() {
         rationale: rule.rationale,
         evidenceStatsUsed: rule.evidenceStatsUsed,
         confidence: rule.confidence,
+        appliedPolicyIds: rule.appliedPolicyIds,
+        quietHours: rule.quietHours,
       };
 
       if (refined.status === "needs_input" && refined.openQuestion) {
@@ -180,13 +189,20 @@ export async function runRetuneSweep() {
         evidenceStatsUsed: rule.evidenceStatsUsed,
         confidence: rule.confidence,
         retuneOfRuleId: rule.id,
+        // Noise-driven retuning is about threshold/window, not policy — carry
+        // the rule's existing policy citations/quiet-hours forward unchanged
+        // rather than dropping them on every noise-based self-correction pass.
+        appliedPolicyIds: rule.appliedPolicyIds,
+        quietHours: rule.quietHours,
       } satisfies AlertRulePayload,
       rationale: outcome.proposal.rationale,
       evidence: [
         {
           type: "metric",
           query: `backtest replay of ${rule.serviceId}'s active rule over the last 24h`,
-          summary: `fired ${((outcome.backtest.fractionAbove ?? 0) * 100).toFixed(1)}% of the window, corroborated ${((outcome.backtest.corroboratedFraction ?? 0) * 100).toFixed(0)}% of fires`,
+          summary:
+            `fired ${((outcome.backtest.fractionAbove ?? 0) * 100).toFixed(1)}% of the window, corroborated ${((outcome.backtest.corroboratedFraction ?? 0) * 100).toFixed(0)}% of fires` +
+            (outcome.backtest.excludedByQuietHoursCount ? `, ${outcome.backtest.excludedByQuietHoursCount} sample(s) excluded per this rule's quiet-hours policy` : ""),
           observedAt: now,
         },
       ],

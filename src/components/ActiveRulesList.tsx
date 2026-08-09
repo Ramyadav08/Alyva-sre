@@ -7,7 +7,7 @@
  * correcting" is a real, ongoing thing, not a one-time draft.
  */
 import { useEffect, useState } from "react";
-import type { AlertRule } from "@/lib/models";
+import type { AlertPolicy, AlertRule } from "@/lib/models";
 
 const VERDICT_STYLE: Record<string, string> = {
   acceptable: "text-success",
@@ -21,13 +21,16 @@ const VERDICT_STYLE: Record<string, string> = {
 
 export function ActiveRulesList() {
   const [rules, setRules] = useState<AlertRule[]>([]);
+  const [policies, setPolicies] = useState<AlertPolicy[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     async function refresh() {
-      const res = await fetch("/api/alert-rules");
-      const { rules } = await res.json();
+      const [rulesRes, policiesRes] = await Promise.all([fetch("/api/alert-rules"), fetch("/api/alert-policies")]);
+      const { rules } = await rulesRes.json();
+      const { policies } = await policiesRes.json();
       setRules(rules);
+      setPolicies(policies);
     }
     refresh();
     const interval = setInterval(refresh, 10000);
@@ -68,6 +71,20 @@ export function ActiveRulesList() {
                       Self-tuned {r.tuningHistory.length}x:{" "}
                       {r.tuningHistory.map((h) => `${h.beforeThreshold.toFixed(1)}→${h.afterThreshold.toFixed(1)}`).join(", ")}
                     </p>
+                  )}
+                  {r.quietHours && (
+                    <p>Quiet hours: {r.quietHours.startHour}:00–{r.quietHours.endHour}:00 (excluded from firing/noise checks)</p>
+                  )}
+                  {r.appliedPolicyIds?.length > 0 && (
+                    <p>
+                      House rules consulted:{" "}
+                      {r.appliedPolicyIds
+                        .map((id) => policies.find((p) => p.id === id)?.text ?? id)
+                        .join("; ")}
+                    </p>
+                  )}
+                  {(r.lastBacktest?.excludedByQuietHoursCount ?? 0) > 0 && (
+                    <p>{r.lastBacktest!.excludedByQuietHoursCount} sample(s) excluded from the last backtest by quiet hours</p>
                   )}
                 </div>
               )}

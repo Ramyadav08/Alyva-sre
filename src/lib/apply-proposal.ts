@@ -108,6 +108,12 @@ async function applyAlertRule(proposal: Proposal): Promise<void> {
     });
     existing.threshold = payload.threshold;
     existing.windowMinutes = payload.windowMinutes;
+    // A policy-retune proposal (lib/alert-rules/policy-retune.ts) is the one
+    // retune path that can genuinely add/change these — a noise-driven
+    // retune just carries the existing values forward, so this is a no-op
+    // for that case and a real update for a policy-driven one.
+    existing.appliedPolicyIds = payload.appliedPolicyIds;
+    existing.quietHours = payload.quietHours;
     existing.retuneProposal = null;
     existing.updatedAt = now;
     await db.write();

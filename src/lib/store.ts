@@ -13,6 +13,7 @@ import type {
   AlertRule,
   DashboardPanelSpec,
   Postmortem,
+  AlertPolicy,
 } from "./models";
 
 export type AlyvaData = {
@@ -22,6 +23,7 @@ export type AlyvaData = {
   alertRules: AlertRule[];
   dashboardPanels: DashboardPanelSpec[];
   postmortems: Postmortem[];
+  alertPolicies: AlertPolicy[];
 };
 
 const DEFAULT_DATA: AlyvaData = {
@@ -30,6 +32,7 @@ const DEFAULT_DATA: AlyvaData = {
   questions: [],
   alertRules: [],
   postmortems: [],
+  alertPolicies: [],
   dashboardPanels: [
     {
       id: "business-impact",
