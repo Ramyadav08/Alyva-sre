@@ -190,6 +190,25 @@ async function fetchFullTrace(traceId: string): Promise<any | null> {
   return safeFetchJson(`${TEMPO_URL}/api/traces/${traceId}`, "fetchFullTrace");
 }
 
+const TRACE_FETCH_BATCH_SIZE = 10;
+
+/**
+ * Fetches full traces in small sequential batches instead of one giant
+ * Promise.all — this stack's Tempo is shared with other teams, and firing
+ * up to 150 concurrent full-trace fetches (the previous behavior) really
+ * did trigger real HTTP 429s from Tempo during this session's testing,
+ * confirmed via live logs, not assumed. Being a considerate citizen of
+ * shared infra matters here as much as any other correctness property.
+ */
+async function fetchFullTracesBatched(traceIds: string[]): Promise<Array<any | null>> {
+  const results: Array<any | null> = [];
+  for (let i = 0; i < traceIds.length; i += TRACE_FETCH_BATCH_SIZE) {
+    const batch = traceIds.slice(i, i + TRACE_FETCH_BATCH_SIZE);
+    results.push(...(await Promise.all(batch.map((id) => fetchFullTrace(id)))));
+  }
+  return results;
+}
+
 export type TrafficEdge = {
   source: string;
   target: string;
@@ -204,14 +223,12 @@ export type TrafficEdge = {
  * source for the dashboard's "top services by inter-service call latency"
  * panel, and for onboarding's dependency-graph discovery.
  */
-export async function getServiceTrafficEdges(windowMinutes = 60, traceLimit = 150): Promise<TrafficEdge[]> {
+export async function getServiceTrafficEdges(windowMinutes = 60, traceLimit = 80): Promise<TrafficEdge[]> {
   const traces = await searchTraces("", traceLimit);
   const edgeKey = (a: string, b: string) => `${a}→${b}`;
   const edges = new Map<string, TrafficEdge>();
 
-  const fullTraces = await Promise.all(
-    traces.slice(0, traceLimit).map((t: any) => fetchFullTrace(t.traceID)),
-  );
+  const fullTraces = await fetchFullTracesBatched(traces.slice(0, traceLimit).map((t: any) => t.traceID));
 
   for (const trace of fullTraces) {
     if (!trace) continue;
