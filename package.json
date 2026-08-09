@@ -1,14 +1,15 @@
 {
   "name": "alyva-sre",
   "version": "0.1.0",
-  "description": "AI-native SRE agent — Alert Rules skill (team-1, SREonCall hackathon)",
+  "description": "AI-native SRE agent — Onboarding, Alert Rules, and Detection & RCA skills (team-1, SREonCall hackathon)",
   "private": true,
   "type": "commonjs",
   "main": "src/web/server.js",
   "scripts": {
     "start": "node src/web/server.js",
-    "discover": "node src/skills/alert-rules/cli-discover.js",
-    "draft": "node src/skills/alert-rules/cli-draft.js"
+    "onboarding": "node src/skills/onboarding/run.js",
+    "alert-rules": "node src/skills/alert-rules/run.js",
+    "detection": "node src/skills/detection/run.js"
   },
   "engines": {
     "node": ">=18"

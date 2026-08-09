@@ -160,3 +160,13 @@ function resolveInvestigation(investigationId, note, rootCauseTag) {
 }
 
 module.exports = { scanForNewInvestigations, askFollowUp, resolveInvestigation, loadInvestigations, priorHypothesisHint };
+
+if (require.main === module) {
+  require("../../env");
+  scanForNewInvestigations({ log: console.log })
+    .then((invs) => console.log(`\nDone. ${invs.length} investigation(s) total.`))
+    .catch((err) => {
+      console.error("Detection scan failed:", err);
+      process.exit(1);
+    });
+}
