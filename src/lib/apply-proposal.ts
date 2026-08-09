@@ -57,13 +57,44 @@ async function applyAlertRule(proposal: Proposal): Promise<void> {
   const db = await getDb();
   const payload = proposal.payload as AlertRulePayload;
   const now = nowIso();
+
+  if (payload.retuneOfRuleId) {
+    const existing = db.data.alertRules.find((r) => r.id === payload.retuneOfRuleId);
+    if (!existing) {
+      await markApplyFailed(proposal.id, `retune target rule ${payload.retuneOfRuleId} not found`);
+      return;
+    }
+    existing.tuningHistory.push({
+      iteration: existing.tuningHistory.length + 1,
+      at: now,
+      beforeThreshold: existing.threshold,
+      afterThreshold: payload.threshold,
+      beforeWindowMinutes: existing.windowMinutes,
+      afterWindowMinutes: payload.windowMinutes,
+      reason: payload.rationale,
+      backtestBefore: existing.lastBacktest?.verdict ?? "untestable",
+    });
+    existing.threshold = payload.threshold;
+    existing.windowMinutes = payload.windowMinutes;
+    existing.retuneProposal = null;
+    existing.updatedAt = now;
+    await db.write();
+    await markApplied(proposal.id, existing.id);
+    return;
+  }
+
   const id = newId("rule");
   db.data.alertRules.push({
     ...payload,
     id,
     proposalId: proposal.id,
     status: "active",
-    firingHistory: [],
+    baselineSnapshot: {},
+    tuningHistory: [],
+    lastBacktest: null,
+    retuneProposal: null,
+    retuneRejections: [],
+    learnedCorrectionApplied: null,
     createdAt: now,
     updatedAt: now,
   });

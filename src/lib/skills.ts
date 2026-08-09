@@ -39,3 +39,33 @@ export async function appendLesson(name: SkillName, lesson: string, evidenceRef?
   const line = `\n- ${new Date().toISOString()} — ${lesson}${evidenceRef ? ` (evidence: ${evidenceRef})` : ""}`;
   await appendFile(filePath, line, "utf-8");
 }
+
+/**
+ * Called from the generic decide route for every real human decision on a
+ * Proposal — this is what makes the skill docs actually self-learning
+ * (an accumulating, git-tracked record of real outcomes) instead of a
+ * static prompt nobody revisits. Only fires for the two kinds that have a
+ * runtime skill doc; other Proposal kinds have nothing to learn into yet.
+ */
+export async function recordProposalLesson(args: {
+  kind: string;
+  serviceId?: string;
+  summary: string;
+  decision: "approved" | "rejected";
+  wasEdited: boolean;
+  note?: string;
+}): Promise<void> {
+  const skillName: SkillName | null = args.kind === "profile_field" ? "onboarding" : args.kind === "alert_rule" ? "alerting" : null;
+  if (!skillName) return;
+
+  const service = args.serviceId ? `"${args.serviceId}"` : "an item";
+  let lesson: string;
+  if (args.decision === "rejected") {
+    lesson = `Rejected — ${service}: "${args.summary}"${args.note ? ` — ${args.note}` : ""}. Weigh this against similar future proposals.`;
+  } else if (args.wasEdited) {
+    lesson = `Approved after edit — ${service}: "${args.summary}"${args.note ? ` — ${args.note}` : ""}. The edited value is the new baseline to reason from, not the original draft.`;
+  } else {
+    lesson = `Approved as drafted — ${service}: "${args.summary}". No correction needed this time.`;
+  }
+  await appendLesson(skillName, lesson);
+}

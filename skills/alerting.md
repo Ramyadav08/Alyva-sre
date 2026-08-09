@@ -64,3 +64,5 @@ noisy rule by touching the thing that observes it — see the hard rule below.
 <!-- The agent appends a short, evidence-cited entry here after each real review decision and
      each real noise-check outcome — this section is the running, git-tracked record of how this
      skill's own judgment has adapted over time. Never hand-edit past entries; only append. -->
+
+- 2026-08-09T10:58:23.373Z — Rejected — "flagd": "trace_error_rate rule for flagd — gt 0.05fraction over 5m" — threshold too loose for a critical-tier service. Weigh this against similar future proposals.

@@ -5,6 +5,8 @@ import { OnboardedServices } from "@/components/OnboardedServices";
 import { ProposalReviewList } from "@/components/ProposalReviewList";
 import { BusinessImpactPanel } from "@/components/BusinessImpactPanel";
 import { TopLatencyPanel } from "@/components/TopLatencyPanel";
+import { AlertRulesRunner } from "@/components/AlertRulesRunner";
+import { ActiveRulesList } from "@/components/ActiveRulesList";
 
 export default function DashboardPage() {
   return (
@@ -14,15 +16,20 @@ export default function DashboardPage() {
           <Logo />
           <span className="text-sm text-muted-foreground">Alyva — AI-native SRE</span>
         </div>
-        <OnboardingRunner />
+        <div className="text-right">
+          <OnboardingRunner />
+          <AlertRulesRunner />
+        </div>
       </header>
       <div className="mx-auto max-w-5xl space-y-6 px-6 py-6">
         <QuestionsBanner />
         <ProposalReviewList kind="profile_field" title="Onboarding — confirm service profiles" />
+        <ProposalReviewList kind="alert_rule" title="Alert rules — review" />
         <div className="grid gap-4 sm:grid-cols-2">
           <BusinessImpactPanel />
           <TopLatencyPanel />
         </div>
+        <ActiveRulesList />
         <OnboardedServices />
       </div>
     </main>

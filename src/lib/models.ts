@@ -115,34 +115,87 @@ export type ServiceProfile = {
   updatedAt: string;
 };
 
+/**
+ * Alert-rule shapes ported from Ramya's real, working alert-rules skill
+ * (src/skills/alert-rules/*.js) — backtest-against-real-history, not a
+ * real-time fire-tracking model. That's a deliberate substitution for what
+ * an earlier version of this plan sketched: waiting for live rules to
+ * accumulate real fire history is slow and hard to demo honestly, whereas
+ * replaying the rule's own query against real historical LGTM data
+ * produces the same judgment (is this rule noisy?) from evidence that
+ * already exists. Field names adapted to this codebase's camelCase
+ * convention; the algorithms themselves (baseline.js/draft.js/backtest.js/
+ * tuning.js) are followed faithfully — see lib/alert-rules/.
+ */
+export type AlertSignalType = "trace_latency" | "trace_error_rate" | "log_error_rate";
+export type AlertCriticality = "critical" | "high" | "medium" | "low";
+
+export type AlertBacktestVerdict =
+  | "never_fired_in_window"
+  | "acceptable"
+  | "frequent_but_corroborated"
+  | "likely_noisy"
+  | "untestable"
+  | "no_historical_data"
+  | "query_failed";
+
+export type AlertBacktestResult = {
+  verdict: AlertBacktestVerdict;
+  fractionAbove: number | null;
+  sampleCount: number;
+  episodeCount: number;
+  corroboratedFraction: number | null;
+  ranAt: string;
+  /** Raw historical values from the backtest window — reused by tuning.ts to compute a candidate threshold without re-fetching. */
+  rawValues?: number[];
+};
+
+export type AlertTuningHistoryEntry = {
+  iteration: number;
+  at: string;
+  beforeThreshold: number;
+  afterThreshold: number;
+  beforeWindowMinutes: number;
+  afterWindowMinutes: number;
+  reason: string;
+  backtestBefore: AlertBacktestVerdict;
+};
+
+export type AlertRetuneProposal = {
+  newThreshold: number;
+  newWindowMinutes: number;
+  rationale: string;
+  backtest: AlertBacktestResult;
+  proposedAt: string;
+};
+
 export type AlertRulePayload = {
   serviceId: string;
-  name: string;
-  metricQuery: string;
-  operator: "gt" | "lt" | "gte" | "lte";
+  signalType: AlertSignalType;
+  criticality: AlertCriticality;
+  operator: "gt" | "lt";
   threshold: number;
+  thresholdUnit: string;
   windowMinutes: number;
-  baselineValue: number;
-  baselineMultiplier: number;
+  rationale: string;
+  evidenceStatsUsed: string[];
+  confidence: "high" | "medium" | "low";
+  /** Set only on a retune Proposal — approving it updates this existing rule in place (with a tuningHistory entry) instead of creating a new one. */
+  retuneOfRuleId?: string;
 };
 
 export type AlertRule = AlertRulePayload & {
   id: string;
   proposalId: string;
   status: "active" | "retired";
-  firingHistory: AlertFiringEvent[];
+  baselineSnapshot: Record<string, unknown>;
+  tuningHistory: AlertTuningHistoryEntry[];
+  lastBacktest: AlertBacktestResult | null;
+  retuneProposal: AlertRetuneProposal | null;
+  retuneRejections: Array<{ at: string; note?: string }>;
+  learnedCorrectionApplied: { factor: number; sampleSize: number; preCorrectionThreshold: number } | null;
   createdAt: string;
   updatedAt: string;
-};
-
-export type AlertFiringEvent = {
-  id: string;
-  firedAt: string;
-  observedValue: number;
-  /** Was this fire corroborated by real, independent evidence (error-rate/trace spike)? */
-  corroborated: boolean | null;
-  corroboratingEvidence: EvidenceRef[];
-  resolvedAt?: string;
 };
 
 export type DashboardPanelSpec = {

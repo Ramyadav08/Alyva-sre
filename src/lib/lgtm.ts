@@ -47,7 +47,14 @@ export async function queryMetricInstant(promql: string, time?: number): Promise
     "queryMetricInstant",
   );
   const result = json?.data?.result?.[0]?.value?.[1];
-  return result !== undefined ? Number(result) : null;
+  if (result === undefined) return null;
+  const num = Number(result);
+  // Prometheus returns the literal string "NaN" for e.g. histogram_quantile
+  // over empty buckets (confirmed live: payment/checkout's p99 latency
+  // with near-zero call volume) — that's "no real value," not a number,
+  // and must never be surfaced as evidence (Auditability: a claim can't
+  // cite NaN as if it were a measurement).
+  return Number.isNaN(num) ? null : num;
 }
 
 /** Instant PromQL query, full vector (all label combinations). */
@@ -99,6 +106,25 @@ export async function querySeries(
   return Array.isArray(json?.data) ? json.data : [];
 }
 
+let cachedLokiServiceLabels: string[] | null = null;
+
+/**
+ * Loki's `service_name` label uses `opentelemetry-demo/<service>` on this
+ * stack (confirmed via the label-values endpoint, matches Ramya's
+ * lokiServiceLabel() convention exactly) — resolves to that label value, or
+ * null if this service has no Loki stream at all (some services, e.g.
+ * pure gRPC backends with structured-logging-to-stdout-only, may not).
+ */
+export async function resolveLokiServiceLabel(serviceName: string): Promise<string | null> {
+  if (!cachedLokiServiceLabels) {
+    const json = await safeFetchJson(`${LOKI_URL}/loki/api/v1/label/service_name/values`, "resolveLokiServiceLabel");
+    cachedLokiServiceLabels = (Array.isArray(json?.data) ? json.data : []) as string[];
+  }
+  const labels: string[] = cachedLokiServiceLabels;
+  const candidate = `opentelemetry-demo/${serviceName}`;
+  return labels.includes(candidate) ? candidate : null;
+}
+
 export type LogEntry = { timestamp: string; line: string; labels: Record<string, string> };
 
 /** Loki range query, most recent `sinceMinutes` of logs matching a LogQL selector. */
@@ -117,6 +143,37 @@ export async function queryLogs(logqlSelector: string, sinceMinutes = 10, limit 
     }
   }
   return entries;
+}
+
+/**
+ * Loki also evaluates LogQL *metric* queries (e.g. `sum(count_over_time(...))`),
+ * distinct from the raw-log-lines `query_range` above — these hit Loki's
+ * `/query` (instant) and `/query_range` (range) endpoints and return a
+ * Prometheus-shaped vector/matrix, not log entries. Needed for
+ * log_error_rate baselining/backtesting (queries.js's third signal type).
+ */
+export async function queryLokiMetricInstant(logqlMetricQuery: string, timeNs?: number): Promise<number | null> {
+  const t = timeNs ? `&time=${timeNs}` : "";
+  const json = await safeFetchJson(
+    `${LOKI_URL}/loki/api/v1/query?query=${encodeURIComponent(logqlMetricQuery)}${t}`,
+    "queryLokiMetricInstant",
+  );
+  const result = json?.data?.result?.[0]?.value?.[1];
+  return result !== undefined ? Number(result) : null;
+}
+
+/** startNs/endNs are nanosecond epoch timestamps — Loki's own convention (verified in queryLogs above), distinct from Mimir's second-epoch range queries. */
+export async function queryLokiMetricRange(
+  logqlMetricQuery: string,
+  startNs: number,
+  endNs: number,
+  step = "60s",
+): Promise<Array<[number, string]>> {
+  const json = await safeFetchJson(
+    `${LOKI_URL}/loki/api/v1/query_range?query=${encodeURIComponent(logqlMetricQuery)}&start=${startNs}&end=${endNs}&step=${step}`,
+    "queryLokiMetricRange",
+  );
+  return json?.data?.result?.[0]?.values ?? [];
 }
 
 /** Tempo trace search by tag filter (e.g. `service.name=checkout`). Returns trace summaries. */
