@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Alyva-sre — Alert Rules</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --background: #F8FAFC;
+    --foreground: #0F172A;
+    --primary: #FF6B2B;
+    --primary-foreground: #FFFFFF;
+    --accent: #EEF2F6;
+    --muted: #64748B;
+    --border: #E2E8F0;
+    --card: #FFFFFF;
+    --danger: #DC2626;
+    --ok: #16A34A;
+    --radius: 0.5rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: #0D1117;
+      --foreground: #E2E8F0;
+      --accent: #1B2431;
+      --muted: #8B98A9;
+      --border: #24303F;
+      --card: #12181F;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  header {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);
+  }
+  header img { height: 28px; }
+  header h1 { font-size: 1rem; font-weight: 600; margin: 0; }
+  header .sub { color: var(--muted); font-size: 0.8rem; }
+  main { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+  section { margin-bottom: 2rem; }
+  section h2 {
+    font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--muted); font-weight: 600; margin: 0 0 0.75rem;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1rem; margin-bottom: 0.6rem;
+  }
+  .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+  .svc { font-weight: 600; }
+  .tag {
+    display: inline-block; font-size: 0.7rem; font-weight: 600; padding: 0.1rem 0.5rem;
+    border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .tag.critical { background: #FEE2E2; color: #991B1B; }
+  .tag.high { background: #FFEDD5; color: #9A3412; }
+  .tag.medium { background: #FEF9C3; color: #854D0E; }
+  .tag.low { background: #E0F2FE; color: #075985; }
+  .evidence {
+    font-family: ui-monospace, monospace; font-size: 0.72rem; color: var(--muted);
+    background: var(--accent); padding: 0.5rem; border-radius: 4px; margin-top: 0.5rem;
+    overflow-x: auto; white-space: pre-wrap; word-break: break-all;
+  }
+  .rationale { margin-top: 0.4rem; font-size: 0.85rem; }
+  .question { margin-top: 0.4rem; font-size: 0.85rem; color: var(--primary); }
+  .actions { display: flex; gap: 0.4rem; margin-top: 0.6rem; flex-wrap: wrap; }
+  button {
+    font: inherit; padding: 0.35rem 0.8rem; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--card); color: var(--foreground); cursor: pointer;
+  }
+  button.primary { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+  button.danger { color: var(--danger); border-color: var(--danger); }
+  button:hover { opacity: 0.85; }
+  input[type=number] { width: 90px; font: inherit; padding: 0.3rem; border-radius: 6px; border: 1px solid var(--border); background: var(--background); color: var(--foreground); }
+  .empty { color: var(--muted); font-style: italic; padding: 0.5rem 0; }
+  .verdict { font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 4px; }
+  .verdict.acceptable, .verdict.never_fired_in_window { background: #DCFCE7; color: #166534; }
+  .verdict.likely_noisy, .verdict.frequent_but_corroborated { background: #FEF3C7; color: #92400E; }
+  .verdict.no_historical_data, .verdict.untestable, .verdict.query_failed { background: var(--accent); color: var(--muted); }
+  .options { display: flex; gap: 0.4rem; margin-top: 0.5rem; flex-wrap: wrap; }
+  #toast {
+    position: fixed; bottom: 1rem; right: 1rem; background: var(--foreground); color: var(--background);
+    padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.85rem; opacity: 0; transition: opacity 0.2s;
+  }
+</style>
+</head>
+<body>
+<header>
+  <img src="/logo.svg" alt="" onerror="this.style.display='none'" />
+  <div>
+    <h1>Alyva-sre</h1>
+    <div class="sub">Alert Rules skill — review &amp; approve</div>
+  </div>
+</header>
+<main>
+  <section id="questions-section">
+    <h2>Pending questions</h2>
+    <div id="questions"></div>
+  </section>
+  <section id="review-section">
+    <h2>Ready for review</h2>
+    <div id="ready"></div>
+  </section>
+  <section id="needsinput-section">
+    <h2>Needs human input</h2>
+    <div id="needsinput"></div>
+  </section>
+  <section id="approved-section">
+    <h2>Approved</h2>
+    <div id="approved"></div>
+  </section>
+</main>
+<div id="toast"></div>
+<script>
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.opacity = 1;
+  setTimeout(() => t.style.opacity = 0, 2200);
+}
+
+function tierTag(c) {
+  return c ? `<span class="tag ${c}">${c}</span>` : '';
+}
+
+function evidenceBlock(rule) {
+  const lines = [];
+  if (rule.baseline_snapshot) {
+    const b = rule.baseline_snapshot;
+    lines.push(`baseline (${b.window || ''}): p99=${fmt(b.latency_p99_ms)}ms p50=${fmt(b.latency_p50_ms)}ms err=${fmt(b.error_rate_fraction)} logs=${fmt(b.log_error_lines_per_min)}/min`);
+  }
+  if (rule.backtest) {
+    const bt = rule.backtest;
+    lines.push(`backtest (${bt.hours_back}h): ${bt.samples_above_threshold ?? '?'}/${bt.total_samples ?? '?'} samples above threshold (${bt.fraction_time_above_threshold != null ? (bt.fraction_time_above_threshold*100).toFixed(1)+'%' : 'n/a'})${bt.corroborated_fraction != null ? ', ' + (bt.corroborated_fraction*100).toFixed(0)+'% corroborated by other signals' : ''}`);
+    if (bt.query) lines.push(bt.query);
+  }
+  return lines.length ? `<div class="evidence">${lines.map(escapeHtml).join('\n')}</div>` : '';
+}
+
+function fmt(n) { return n == null ? 'n/a' : (Math.round(n*1000)/1000); }
+function escapeHtml(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+async function api(path, opts) {
+  const res = await fetch(path, { headers: { 'content-type': 'application/json' }, ...opts });
+  const json = await res.json();
+  if (!res.ok || json.ok === false) throw new Error(json.error || 'request failed');
+  return json;
+}
+
+async function load() {
+  const state = await api('/api/state');
+  renderQuestions(state.pendingQuestions);
+  const rules = state.rules || [];
+  renderReady(rules.filter(r => r.status === 'pending_review'));
+  renderNeedsInput(rules.filter(r => r.status === 'needs_input'));
+  renderApproved(rules.filter(r => r.status === 'approved'));
+}
+
+function renderQuestions(qs) {
+  const el = document.getElementById('questions');
+  if (!qs.length) { el.innerHTML = '<div class="empty">None right now.</div>'; return; }
+  el.innerHTML = qs.map(q => `
+    <div class="card">
+      <div class="svc">${escapeHtml(q.service)}</div>
+      <div class="rationale">${escapeHtml(q.question)}</div>
+      <div class="evidence">${escapeHtml(q.evidence)}</div>
+      <div class="options">
+        ${q.options.map(o => `<button data-qid="${q.id}" data-answer="${o}" class="answer-btn">${o}</button>`).join('')}
+      </div>
+    </div>
+  `).join('');
+  el.querySelectorAll('.answer-btn').forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      await api(`/api/questions/${btn.dataset.qid}/answer`, { method: 'POST', body: JSON.stringify({ answer: btn.dataset.answer }) });
+      toast(`Answered: ${btn.dataset.answer}`);
+      load();
+    } catch (e) { toast('Error: ' + e.message); }
+  }));
+}
+
+function ruleCard(r, actionsHtml) {
+  return `
+    <div class="card" data-rule="${r.id}">
+      <div class="row">
+        <div>
+          <span class="svc">${escapeHtml(r.service_name)}</span> ${tierTag(r.criticality)}
+          <span style="color:var(--muted)"> / ${escapeHtml(r.signal_type)}</span>
+        </div>
+        ${r.backtest && r.backtest.verdict ? `<span class="verdict ${r.backtest.verdict}">${r.backtest.verdict}</span>` : ''}
+      </div>
+      <div class="rationale">
+        ${r.threshold != null ? `<b>${escapeHtml(r.operator || 'gt')} ${fmt(r.threshold)}${escapeHtml(r.threshold_unit||'')}</b> over ${r.window_minutes || '?'}m — ` : ''}
+        ${escapeHtml(r.rationale || '')}
+      </div>
+      ${r.clarifying_question ? `<div class="question">${escapeHtml(r.clarifying_question)}</div>` : ''}
+      ${r.open_question ? `<div class="question">${escapeHtml(r.open_question)}</div>` : ''}
+      ${evidenceBlock(r)}
+      ${actionsHtml || ''}
+    </div>
+  `;
+}
+
+function renderReady(rules) {
+  const el = document.getElementById('ready');
+  if (!rules.length) { el.innerHTML = '<div class="empty">Nothing drafted yet — run the pipeline.</div>'; return; }
+  el.innerHTML = rules.map(r => ruleCard(r, `
+    <div class="actions">
+      <button class="primary approve-btn" data-id="${r.id}">Approve</button>
+      <button class="edit-btn" data-id="${r.id}" data-threshold="${r.threshold}">Edit threshold</button>
+      <button class="danger reject-btn" data-id="${r.id}">Reject</button>
+    </div>
+  `)).join('');
+  wireActions(el);
+}
+
+function renderNeedsInput(rules) {
+  const el = document.getElementById('needsinput');
+  if (!rules.length) { el.innerHTML = '<div class="empty">None right now.</div>'; return; }
+  el.innerHTML = rules.map(r => ruleCard(r, `
+    <div class="actions">
+      <button class="approve-btn" data-id="${r.id}">Approve as-is</button>
+      <button class="edit-btn" data-id="${r.id}" data-threshold="${r.threshold || 0}">Set threshold &amp; approve</button>
+      <button class="danger reject-btn" data-id="${r.id}">Reject</button>
+    </div>
+  `)).join('');
+  wireActions(el);
+}
+
+function renderApproved(rules) {
+  const el = document.getElementById('approved');
+  if (!rules.length) { el.innerHTML = '<div class="empty">None approved yet.</div>'; return; }
+  el.innerHTML = rules.map(r => ruleCard(r, r.retune_proposal ? `
+    <div class="card" style="background:var(--accent); margin-top:0.5rem;">
+      <b>Retune proposal:</b> ${fmt(r.threshold)} → ${fmt(r.retune_proposal.new_threshold)} — ${escapeHtml(r.retune_proposal.rationale || '')}
+      <div class="actions">
+        <button class="primary apply-retune-btn" data-id="${r.id}">Apply</button>
+        <button class="danger reject-retune-btn" data-id="${r.id}">Reject</button>
+      </div>
+    </div>
+  ` : `<div class="actions"><button class="retune-check-btn" data-id="${r.id}">Check for drift</button></div>`)).join('');
+  wireActions(el);
+}
+
+function wireActions(el) {
+  el.querySelectorAll('.approve-btn').forEach(b => b.addEventListener('click', () => act(`/api/rules/${b.dataset.id}/approve`, {})));
+  el.querySelectorAll('.reject-btn').forEach(b => b.addEventListener('click', () => act(`/api/rules/${b.dataset.id}/reject`, {})));
+  el.querySelectorAll('.edit-btn').forEach(b => b.addEventListener('click', () => {
+    const v = prompt('New threshold value:', b.dataset.threshold);
+    if (v === null) return;
+    act(`/api/rules/${b.dataset.id}/edit`, { threshold: Number(v) });
+  }));
+  el.querySelectorAll('.retune-check-btn').forEach(b => b.addEventListener('click', () => act(`/api/rules/${b.dataset.id}/retune-check`, { hoursBack: 24 }, 'Checked')));
+  el.querySelectorAll('.apply-retune-btn').forEach(b => b.addEventListener('click', () => act(`/api/rules/${b.dataset.id}/apply-retune`, {})));
+  el.querySelectorAll('.reject-retune-btn').forEach(b => b.addEventListener('click', () => {
+    const note = prompt('Why reject this retune proposal? (optional)', '');
+    act(`/api/rules/${b.dataset.id}/reject-retune`, { note });
+  }));
+}
+
+async function act(url, body, label) {
+  try {
+    await api(url, { method: 'POST', body: JSON.stringify(body) });
+    toast(label || 'Done');
+    load();
+  } catch (e) { toast('Error: ' + e.message); }
+}
+
+load();
+setInterval(load, 15000);
+</script>
+</body>
+</html>
