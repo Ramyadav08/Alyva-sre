@@ -20,6 +20,16 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
+// Agency is a claim right now unless something on the dashboard actually
+// proves the schedulers ran without a human clicking anything. This is that
+// proof: every scheduled tick stamps its own "I ran at T" record, read back
+// by the UI as "last active Xs ago" — real evidence, not an assertion.
+function recordHeartbeat(key, extra = {}) {
+  const hb = store.load("agent-heartbeat", {});
+  hb[key] = { at: new Date().toISOString(), ...extra };
+  store.save("agent-heartbeat", hb);
+}
+
 const PORT = process.env.PORT || 4310;
 const RETUNE_INTERVAL_MS = Number(process.env.RETUNE_INTERVAL_MS || 10 * 60 * 1000); // 10 min, agency: runs on its own
 const DETECTION_SCAN_INTERVAL_MS = Number(process.env.DETECTION_SCAN_INTERVAL_MS || 2 * 60 * 1000); // 2 min
@@ -101,11 +111,17 @@ app.post("/api/onboarding/profile/:service/confirm", (req, res) => {
 // ---- Dashboard ----
 
 app.get("/api/dashboard/state", (req, res) => {
+  const investigations = detection
+    .loadInvestigations()
+    .sort((a, b) => new Date(b.triggered_at) - new Date(a.triggered_at))
+    .slice(0, 8);
   res.json({
     businessImpact: buildBusinessImpactSummary(),
     serviceGraph: cachedServiceGraph,
     recommendations: buildRecommendations({ limit: 10 }),
     layout: customPanel.getLayout(),
+    heartbeat: store.load("agent-heartbeat", {}),
+    investigations,
   });
 });
 
@@ -227,6 +243,20 @@ app.post("/api/investigations/:id/propose-pr", async (req, res) => {
     const inv = investigations.find((i) => i.id === req.params.id);
     if (!inv) return res.status(404).json({ ok: false, error: "No such investigation" });
     const result = proposePR(inv, { dryRun: req.body?.dryRun !== false });
+    // Was only ever returned in the API response, never saved — reload the
+    // dashboard after a real (non-dry-run) propose and the PR link was
+    // gone. Persist it onto the investigation so ownership is visible on
+    // the next page load, not just in the one response that triggered it.
+    if (result.pushed) {
+      inv.proposal = {
+        branch: result.branch,
+        pr_url: result.pr_url,
+        manual_pr_url: result.manual_pr_url,
+        pr_error: result.pr_error,
+        proposed_at: new Date().toISOString(),
+      };
+      store.save("investigations", investigations);
+    }
     res.json({ ok: true, ...result });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message });
@@ -388,24 +418,33 @@ app.listen(PORT, async () => {
     console.error("Initial pipeline run failed:", err.message);
   }
   try {
-    await detection.scanForNewInvestigations({ log: console.log });
+    const invs = await detection.scanForNewInvestigations({ log: console.log });
+    recordHeartbeat("detection_scan", { open_investigations: invs.filter((i) => i.status !== "resolved").length });
   } catch (err) {
     console.error("Initial detection scan failed:", err.message);
   }
   try {
     await refreshServiceGraph();
     console.log(`Service graph: ${cachedServiceGraph.edges.length} edge(s) from ${cachedServiceGraph.traces_sampled} sampled traces.`);
+    recordHeartbeat("service_graph");
   } catch (err) {
     console.error("Initial service graph build failed:", err.message);
   }
   setInterval(() => {
-    retuneSweep().catch((err) => console.error("Retune sweep failed:", err.message));
+    retuneSweep()
+      .then(() => recordHeartbeat("retune_sweep"))
+      .catch((err) => console.error("Retune sweep failed:", err.message));
   }, RETUNE_INTERVAL_MS);
   setInterval(() => {
-    detection.scanForNewInvestigations({ log: console.log }).catch((err) => console.error("Detection scan failed:", err.message));
+    detection
+      .scanForNewInvestigations({ log: console.log })
+      .then((invs) => recordHeartbeat("detection_scan", { open_investigations: invs.filter((i) => i.status !== "resolved").length }))
+      .catch((err) => console.error("Detection scan failed:", err.message));
   }, DETECTION_SCAN_INTERVAL_MS);
   setInterval(() => {
-    refreshServiceGraph().catch((err) => console.error("Service graph refresh failed:", err.message));
+    refreshServiceGraph()
+      .then(() => recordHeartbeat("service_graph"))
+      .catch((err) => console.error("Service graph refresh failed:", err.message));
   }, SERVICE_GRAPH_INTERVAL_MS);
   // Agency gap found via a real walkthrough test: answering an onboarding
   // question only updated the Project Profile on the NEXT full pipeline
@@ -417,6 +456,7 @@ app.listen(PORT, async () => {
     onboarding
       .refreshOnboarding({ log: () => {} })
       .then(() => runPipeline({ hoursBack: 24, log: () => {} }))
+      .then(() => recordHeartbeat("onboarding_refresh"))
       .catch((err) => console.error("Onboarding refresh failed:", err.message));
   }, ONBOARDING_REFRESH_INTERVAL_MS);
 });
