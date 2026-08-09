@@ -61,8 +61,13 @@ noisy rule by touching the thing that observes it — see the hard rule below.
 
 ## Lessons learned
 
-<!-- The agent appends a short, evidence-cited entry here after each real review decision and
-     each real noise-check outcome — this section is the running, git-tracked record of how this
-     skill's own judgment has adapted over time. Never hand-edit past entries; only append. -->
+<!-- Gated, not a blind append log (see lib/skills.ts, adapted from transilienceai/communitytools'
+     skill-update four-gate promotion test): a routine "approved exactly as drafted" is never
+     logged here — only a real rejection or edit carries a correction worth remembering. A new
+     entry about the same service+decision-type supersedes (replaces) the old one rather than
+     duplicating it, and the list is capped, oldest dropped first. Don't hand-edit past entries;
+     the write path maintains this section, not a human. -->
 
 - 2026-08-09T10:58:23.373Z — Rejected — "flagd": "trace_error_rate rule for flagd — gt 0.05fraction over 5m" — threshold too loose for a critical-tier service. Weigh this against similar future proposals.
+- 2026-08-09T12:34:39.589Z — Rejected — "frontend-web": "log_error_rate rule for frontend-web — gt 40.00lines/min over 15m" — second rejection reason, should replace the first. Weigh this against similar future proposals.
+- 2026-08-09T12:35:52.634Z — Rejected — "load-generator": "trace_latency rule for load-generator — gt 4517.19ms over 5m" — testing whitespace fix. Weigh this against similar future proposals.
