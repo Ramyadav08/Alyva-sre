@@ -1,5 +1,9 @@
 node_modules/
 .env
+.env.local
+.env.*.local
 *.log
 .DS_Store
-data/
+.next/
+data/alyva.json
+tsconfig.tsbuildinfo

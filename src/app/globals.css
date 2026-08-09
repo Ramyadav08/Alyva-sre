@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Brand tokens ported (copied, not run) from
+ * reference/sreoncall/packages/web/app/globals.css — "SREonCall Design
+ * System v1.0". Same visual identity as the real product; no new brand
+ * invented for this prototype.
+ */
+@layer base {
+  :root {
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --primary: 21 100% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 215 28% 17%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 21 100% 58%;
+    --radius: 0.5rem;
+    --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --font-mono: "Fira Code", "Consolas", monospace;
+  }
+
+  .dark {
+    --background: 215 28% 5%;
+    --foreground: 214 32% 91%;
+    --card: 216 22% 11%;
+    --card-foreground: 214 32% 91%;
+    --primary: 21 100% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 214 32% 91%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 16% 47%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 21 100% 58%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-display;
+  }
+}
+
+@layer components {
+  /* A claim without an evidence chip is not allowed anywhere in this app —
+     see AUDITABILITY in the non-negotiable build constraints. */
+  .evidence-chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-border
+      bg-muted px-2 py-0.5 text-xs font-mono text-muted-foreground
+      hover:text-foreground hover:border-primary/40 transition-colors;
+  }
+}
