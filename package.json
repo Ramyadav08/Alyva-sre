@@ -1,22 +1,40 @@
 {
   "name": "alyva-sre",
   "version": "0.1.0",
-  "description": "AI-native SRE agent — Onboarding, Alert Rules, and Detection & RCA skills (team-1, SREonCall hackathon)",
+  "description": "AI-native SRE agent — Onboarding, Alert Rules, and Detection & RCA skills, plus a web dashboard (team-1, SREonCall hackathon)",
   "private": true,
   "type": "commonjs",
   "main": "src/web/server.js",
-  "scripts": {
-    "start": "node src/web/server.js",
-    "onboarding": "node src/skills/onboarding/run.js",
-    "alert-rules": "node src/skills/alert-rules/run.js",
-    "detection": "node src/skills/detection/run.js"
-  },
   "engines": {
     "node": ">=18"
   },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "lgtm:smoke": "node lgtm-client.js",
+    "js:start": "node src/web/server.js",
+    "js:onboarding": "node src/skills/onboarding/run.js",
+    "js:alert-rules": "node src/skills/alert-rules/run.js",
+    "js:detection": "node src/skills/detection/run.js"
+  },
   "dependencies": {
+    "next": "^15.5.19",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "lowdb": "^7.0.1",
+    "openai": "^4.60.0",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "openai": "^4.60.0"
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tailwindcss": "^3.4.0",
+    "postcss": "^8.4.0",
+    "autoprefixer": "^10.4.0"
   }
 }

@@ -25,16 +25,29 @@ Three skills built, tested against live data, and running together in one review
    structured report, gets an adversarial skeptic pass, and supports live follow-up questions
    against the same investigation.
 
-## Run it
+## Two interfaces, same underlying skills
+
+This repo carries two independently-built interfaces on top of largely the same skill logic —
+kept side by side deliberately rather than one overwriting the other; see `PROGRESS.md` for the
+history of how that happened and why neither side merged over the other unilaterally.
+
+- **The plain-JS review UI** (`src/web/`, `src/skills/*`) — the original implementation
+  described below, single-page, backend-mechanism-first.
+- **The Next.js dashboard** (`src/app/`, `src/lib/`, `src/components/`) — a web dashboard
+  (Business Impact, Top Latency, custom panels drafted from a chat prompt, Recommendations),
+  built against a ported version of the Alert Rules skill's real algorithm. Run with
+  `npm run dev` (or `npm run build && npm start`).
+
+## Run it (plain-JS review UI)
 
 ```bash
 npm install
 cp .env.example .env   # fill in OPENAI_API_KEY + the shared LGTM endpoints
-npm start               # starts the review UI at :4310, runs all 3 skills' pipelines on boot
+npm run js:start        # starts the review UI at :4310, runs all 3 skills' pipelines on boot
 ```
 
-Or run any single skill's pipeline standalone: `npm run onboarding` / `npm run alert-rules` /
-`npm run detection`.
+Or run any single skill's pipeline standalone: `npm run js:onboarding` / `npm run js:alert-rules`
+/ `npm run js:detection`.
 
 ## Design goals (see hackathon rubric)
 
