@@ -97,10 +97,14 @@
   <img src="/logo.svg" alt="" onerror="this.style.display='none'" />
   <div>
     <h1>Alyva-sre</h1>
-    <div class="sub">Onboarding + Alert Rules skills — review &amp; approve</div>
+    <div class="sub">Onboarding + Alert Rules + Detection &amp; RCA skills — review &amp; approve</div>
   </div>
 </header>
 <main>
+  <section id="investigations-section">
+    <h2>Detection &amp; RCA — investigations</h2>
+    <div id="investigations"></div>
+  </section>
   <section id="questions-section">
     <h2>Onboarding — pending questions</h2>
     <div id="questions"></div>
@@ -160,12 +164,68 @@ async function api(path, opts) {
 
 async function load() {
   const state = await api('/api/state');
+  renderInvestigations(state.investigations || []);
   renderQuestions(state.pendingOnboardingQuestions || []);
   renderProfiles(state.profiles || []);
   const rules = state.rules || [];
   renderReady(rules.filter(r => r.status === 'pending_review'));
   renderNeedsInput(rules.filter(r => r.status === 'needs_input'));
   renderApproved(rules.filter(r => r.status === 'approved'));
+}
+
+function renderInvestigations(invs) {
+  const el = document.getElementById('investigations');
+  if (!invs.length) { el.innerHTML = '<div class="empty">No investigations yet — nothing has breached a live threshold.</div>'; return; }
+  const sorted = [...invs].sort((a, b) => (a.status === 'resolved') - (b.status === 'resolved'));
+  el.innerHTML = sorted.map(inv => {
+    const r = inv.report || {};
+    const skeptic = inv.skeptic_review;
+    return `
+    <div class="card" data-inv="${inv.id}">
+      <div class="row">
+        <div><span class="svc">${escapeHtml(inv.service_name)}</span>
+          <span style="color:var(--muted)"> / ${escapeHtml(inv.signal_type)}</span></div>
+        <span class="verdict ${inv.status === 'resolved' ? 'acceptable' : (inv.converged ? 'frequent_but_corroborated' : 'likely_noisy')}">${escapeHtml(inv.status)}${inv.converged === false ? ' (not converged)' : ''}</span>
+      </div>
+      <div class="rationale"><b>${escapeHtml(r.headline || 'No headline yet')}</b></div>
+      ${r.confidence ? `<div style="font-size:0.8rem; color:var(--muted); margin-top:0.2rem;">confidence: ${escapeHtml(r.confidence)}${r.code_fix_suggested ? ' · code fix suggested' : ''}</div>` : ''}
+      ${skeptic?.contradicts_investigator ? `<div class="question">⚠ Skeptic objects: ${escapeHtml(skeptic.objection || skeptic.unstated_assumption || 'independent read disagrees')}</div>` : ''}
+      <details style="margin-top:0.5rem;">
+        <summary style="cursor:pointer; color:var(--muted); font-size:0.85rem;">Full evidence trail (${inv.ledger?.length || 0} tool calls)</summary>
+        <div class="rationale" style="margin-top:0.5rem;"><b>Hypothesis:</b> ${escapeHtml(r.hypothesis || '')}</div>
+        <div class="rationale"><b>Business impact:</b> ${escapeHtml(r.business_impact_note || 'unknown')}</div>
+        <div class="rationale"><b>Next steps:</b><ul style="margin:0.3rem 0 0 1.2rem;">${(r.next_steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ul></div>
+        ${skeptic ? `<div class="evidence" style="margin-top:0.5rem;">Skeptic's independent read: ${escapeHtml(skeptic.independent_hypothesis || '')}</div>` : ''}
+        <div class="evidence">${(inv.ledger || []).map(e => `${e.tool}(${JSON.stringify(e.args)}) -> ${JSON.stringify(e.result).slice(0, 300)}`).join('\n')}</div>
+      </details>
+      ${inv.status !== 'resolved' ? `
+        <div class="actions" style="margin-top:0.6rem;">
+          <input type="text" class="followup-input" data-inv="${inv.id}" placeholder="Ask a follow-up — e.g. 'why didn't you check X?'" style="flex:1; min-width:280px; font:inherit; padding:0.35rem; border-radius:6px; border:1px solid var(--border); background:var(--background); color:var(--foreground);" />
+          <button class="ask-followup-btn" data-inv="${inv.id}">Ask</button>
+          <button class="primary resolve-btn" data-inv="${inv.id}">Resolve</button>
+        </div>
+      ` : inv.root_cause_tag ? `<div class="evidence" style="margin-top:0.5rem;">tagged: ${escapeHtml(inv.root_cause_tag)}</div>` : ''}
+    </div>
+  `;
+  }).join('');
+
+  el.querySelectorAll('.ask-followup-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const input = el.querySelector(`.followup-input[data-inv="${btn.dataset.inv}"]`);
+    if (!input.value) return;
+    try {
+      await api(`/api/investigations/${btn.dataset.inv}/followup`, { method: 'POST', body: JSON.stringify({ question: input.value }) });
+      toast('Follow-up answered');
+      load();
+    } catch (e) { toast('Error: ' + e.message); }
+  }));
+  el.querySelectorAll('.resolve-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const tag = prompt('Root-cause tag (short label, e.g. "product_catalog_feature_flag") — leave blank if not resolving to a known recurring cause:', '');
+    try {
+      await api(`/api/investigations/${btn.dataset.inv}/resolve`, { method: 'POST', body: JSON.stringify({ root_cause_tag: tag || null }) });
+      toast('Investigation resolved');
+      load();
+    } catch (e) { toast('Error: ' + e.message); }
+  }));
 }
 
 function renderQuestions(qs) {

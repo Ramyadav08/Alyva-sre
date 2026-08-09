@@ -77,6 +77,49 @@ async function searchTracesRange(tagFilter, startSec, endSec, limit = 20) {
   return get(url);
 }
 
+function otlpAttr(attributes, key) {
+  const a = (attributes || []).find((x) => x.key === key);
+  if (!a) return null;
+  const v = a.value || {};
+  return v.stringValue ?? v.intValue ?? v.boolValue ?? v.doubleValue ?? null;
+}
+
+/**
+ * Fetches a specific trace's full span detail and distills it down to just
+ * the signal that matters — which spans errored, in which service, with
+ * what message — instead of dumping the raw OTLP (a real trace can carry
+ * 80+ spans, most of them uninteresting). This is what makes RCA concrete:
+ * a trace ID alone tells you nothing; the actual error message inside one
+ * of its spans is the real evidence.
+ */
+async function getTraceDetail(traceId) {
+  const url = `${TEMPO_URL}/api/traces/${traceId}`;
+  const body = await get(url);
+  const spans = [];
+  for (const batch of body.batches || []) {
+    const serviceName = otlpAttr(batch.resource?.attributes, "service.name");
+    for (const scope of batch.scopeSpans || []) {
+      for (const span of scope.spans || []) {
+        spans.push({
+          service_name: serviceName,
+          span_name: span.name,
+          status_code: span.status?.code || "STATUS_CODE_UNSET",
+          status_message: span.status?.message || null,
+          duration_ms: (Number(span.endTimeUnixNano) - Number(span.startTimeUnixNano)) / 1e6,
+        });
+      }
+    }
+  }
+  const errorSpans = spans.filter((s) => s.status_code === "STATUS_CODE_ERROR");
+  return {
+    trace_id: traceId,
+    total_spans: spans.length,
+    error_span_count: errorSpans.length,
+    services_involved: [...new Set(spans.map((s) => s.service_name))],
+    error_spans: errorSpans,
+  };
+}
+
 // ---- Derived helpers (built from the raw queries above, still read-only) ----
 
 /**
@@ -116,5 +159,6 @@ module.exports = {
   listLokiLabelValues,
   searchTraces,
   searchTracesRange,
+  getTraceDetail,
   discoverServices,
 };

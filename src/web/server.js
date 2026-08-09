@@ -6,6 +6,7 @@ const store = require("../shared/store");
 const onboarding = require("../skills/onboarding/run");
 const { runPipeline } = require("../skills/alert-rules/run");
 const { proposeRetune } = require("../skills/alert-rules/tuning");
+const detection = require("../skills/detection/run");
 
 const app = express();
 app.use(express.json());
@@ -13,6 +14,7 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 4310;
 const RETUNE_INTERVAL_MS = Number(process.env.RETUNE_INTERVAL_MS || 10 * 60 * 1000); // 10 min, agency: runs on its own
+const DETECTION_SCAN_INTERVAL_MS = Number(process.env.DETECTION_SCAN_INTERVAL_MS || 2 * 60 * 1000); // 2 min
 
 function recordOutcome(rule, action, extra = {}) {
   const outcomes = store.load("outcomes", []);
@@ -36,11 +38,13 @@ app.get("/api/state", async (req, res) => {
   const onboardingQuestions = store.load("onboarding-questions", []);
   const rules = store.load("rules", []);
   const outcomes = store.load("outcomes", []);
+  const investigations = detection.loadInvestigations();
   res.json({
     profiles,
     pendingOnboardingQuestions: onboardingQuestions.filter((q) => q.status === "pending"),
     rules,
     outcomes,
+    investigations,
   });
 });
 
@@ -72,6 +76,35 @@ app.post("/api/onboarding/profile/:service/confirm", (req, res) => {
     res.json({ ok: true, profile: p });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// ---- Detection & RCA ----
+
+app.post("/api/investigations/:id/followup", async (req, res) => {
+  try {
+    const inv = await detection.askFollowUp(req.params.id, req.body.question);
+    res.json({ ok: true, investigation: inv });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.post("/api/investigations/:id/resolve", (req, res) => {
+  try {
+    const inv = detection.resolveInvestigation(req.params.id, req.body.note, req.body.root_cause_tag);
+    res.json({ ok: true, investigation: inv });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.post("/api/investigations/scan", async (req, res) => {
+  try {
+    const investigations = await detection.scanForNewInvestigations({ log: () => {} });
+    res.json({ ok: true, count: investigations.length });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
@@ -200,7 +233,15 @@ app.listen(PORT, async () => {
   } catch (err) {
     console.error("Initial pipeline run failed:", err.message);
   }
+  try {
+    await detection.scanForNewInvestigations({ log: console.log });
+  } catch (err) {
+    console.error("Initial detection scan failed:", err.message);
+  }
   setInterval(() => {
     retuneSweep().catch((err) => console.error("Retune sweep failed:", err.message));
   }, RETUNE_INTERVAL_MS);
+  setInterval(() => {
+    detection.scanForNewInvestigations({ log: console.log }).catch((err) => console.error("Detection scan failed:", err.message));
+  }, DETECTION_SCAN_INTERVAL_MS);
 });
