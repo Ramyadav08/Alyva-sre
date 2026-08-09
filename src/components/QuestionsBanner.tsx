@@ -11,6 +11,11 @@ import type { Question } from "@/lib/models";
 
 const VISIBLE_DEFAULT = 3;
 
+/** Strips internal matching markers (e.g. draft.ts's BASELINE_ANOMALY_MARKER) that exist so the backend can find a prior answer to this exact gate — not meant to be user-facing. */
+function displayPrompt(prompt: string): string {
+  return prompt.replace(/^\[[a-z_]+\]\s*/i, "");
+}
+
 export function QuestionsBanner() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -59,7 +64,7 @@ export function QuestionsBanner() {
               className="text-left w-full font-medium"
               onClick={() => setOpenId(openId === q.id ? null : q.id)}
             >
-              {q.prompt}
+              {displayPrompt(q.prompt)}
             </button>
             {openId === q.id && (
               <div className="mt-2 space-y-2">

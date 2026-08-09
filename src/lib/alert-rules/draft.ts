@@ -14,6 +14,9 @@ const ANOMALOUS_P99_P50_RATIO = 50;
 const MIN_EDITS_TO_LEARN = 2;
 const CONSISTENCY_TOLERANCE = 0.25;
 
+/** Prefix marking a baseline_anomaly clarifying question, so run.ts can find a prior answer for this exact gate without a separate Question "topic" field. */
+export const BASELINE_ANOMALY_MARKER = "[baseline_anomaly] ";
+
 export type DraftedRule =
   | (AlertRulePayload & { threshold: number; windowMinutes: number; needsHumanInput: false })
   | {
@@ -96,15 +99,25 @@ export async function draftRulesForService(
   serviceId: string,
   criticality: AlertCriticality,
   baseline: ServiceBaseline,
+  confirmedAnomalyOverride = false,
 ): Promise<DraftedRule[]> {
-  if (baselineLooksAnomalous(baseline)) {
+  // A real gap caught live: this deterministic gate had no way to be
+  // overridden once a human actually answered its own clarifying
+  // question — it kept re-asking the identical question every cycle for
+  // as long as the underlying data stayed anomalous (which, mid-incident,
+  // is indefinitely), silently discarding the answer. `run.ts` now checks
+  // for a real answered baseline_anomaly question for this service before
+  // calling this function and passes that through here — an explicit
+  // "proceed anyway" unblocks drafting (still flagged low-confidence
+  // below), it doesn't just get ignored forever.
+  if (baselineLooksAnomalous(baseline) && !confirmedAnomalyOverride) {
     return [
       {
         serviceId,
         signalType: "baseline_anomaly",
         needsHumanInput: true,
         rationale: `p99 (${baseline.latencyP99Ms.value}ms) is over ${ANOMALOUS_P99_P50_RATIO}x p50 (${baseline.latencyP50Ms.value}ms) in the 15-minute baseline window — this usually means the window itself caught an incident, not normal behavior.`,
-        clarifyingQuestion: `"${serviceId}"'s baseline window looks anomalous (p99/p50 ratio far past normal) — was something already wrong with this service in the last 15 minutes? If so, when would be a cleaner window to baseline against?`,
+        clarifyingQuestion: `${BASELINE_ANOMALY_MARKER}"${serviceId}"'s baseline window looks anomalous (p99/p50 ratio far past normal) — was something already wrong with this service in the last 15 minutes? If so, when would be a cleaner window to baseline against?`,
       },
     ];
   }
@@ -131,7 +144,12 @@ export async function draftRulesForService(
           "0.10; log_error_rate lines/min — critical 5, high 10, medium 20, low 40 (flag confidence " +
           "'low' when you use a floor instead of a real baseline). A learned_correction_factor is " +
           "informational context only — the system applies it deterministically after your draft, " +
-          "don't try to apply it yourself.",
+          "don't try to apply it yourself." +
+          (confirmedAnomalyOverride
+            ? " NOTE: a human explicitly confirmed this service's baseline window is contaminated " +
+              "by a real ongoing issue and asked to proceed anyway — prefer a criticality-tier floor " +
+              "over the (unreliable) observed baseline for every signal here, and flag confidence 'low'."
+            : ""),
       },
       {
         role: "user",

@@ -10,7 +10,7 @@ import { getDb, nowIso } from "../store";
 import { askQuestion, listUnanswered } from "../questions";
 import { createProposal } from "../proposals";
 import { computeBaseline } from "./baseline";
-import { draftRulesForService, type DraftedRule } from "./draft";
+import { draftRulesForService, BASELINE_ANOMALY_MARKER } from "./draft";
 import { refineDraftViaBacktest } from "./tuning";
 import { proposeRetune } from "./tuning";
 import type { AlertCriticality, AlertRulePayload, EvidenceRef, ServiceProfile } from "../models";
@@ -81,7 +81,10 @@ export async function runAlertRulesCycle() {
     }
 
     const baseline = await computeBaseline(profile.serviceId);
-    const draftedRules = await draftRulesForService(profile.serviceId, criticality, baseline);
+    const confirmedAnomalyOverride = db.data.questions.some(
+      (q) => q.serviceId === profile.serviceId && q.answer && q.prompt.startsWith(BASELINE_ANOMALY_MARKER),
+    );
+    const draftedRules = await draftRulesForService(profile.serviceId, criticality, baseline, confirmedAnomalyOverride);
 
     for (const rule of draftedRules) {
       if (rule.needsHumanInput) {
