@@ -30,6 +30,7 @@ import { BusinessImpactPanel } from "@/components/BusinessImpactPanel";
 import { TopLatencyPanel } from "@/components/TopLatencyPanel";
 import { AlertRulesRunner } from "@/components/AlertRulesRunner";
 import { ActiveRulesList } from "@/components/ActiveRulesList";
+import { AlertPoliciesPanel } from "@/components/AlertPoliciesPanel";
 import { CustomPanelChat } from "@/components/CustomPanelChat";
 import { CustomPanelsList } from "@/components/CustomPanelsList";
 import { RecommendationsRunner } from "@/components/RecommendationsRunner";
@@ -119,6 +120,7 @@ export default function DashboardPage() {
 
           <TabsContent value="rules" className="space-y-6">
             <ActiveRulesList />
+            <AlertPoliciesPanel />
             <AppliedFixesPanel />
             <PostmortemsPanel />
           </TabsContent>
