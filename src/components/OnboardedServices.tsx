@@ -3,10 +3,12 @@
 /**
  * Progressive disclosure over the ServiceProfile store: a one-line status
  * per service (onboarded vs. still being discovered/interviewed), not the
- * full discovered+businessContext payload dumped inline.
+ * full discovered+businessContext payload dumped inline. Rebuilt on
+ * shadcn/ui: Badge for the onboarded/in-progress status.
  */
 import { useEffect, useState } from "react";
 import type { ServiceProfile } from "@/lib/models";
+import { Badge } from "@/components/ui/badge";
 
 export function OnboardedServices() {
   const [profiles, setProfiles] = useState<ServiceProfile[]>([]);
@@ -38,12 +40,12 @@ export function OnboardedServices() {
             className="flex items-center justify-between rounded border border-border bg-card px-3 py-2 text-sm"
           >
             <span className="font-mono">{p.displayName}</span>
-            <span
-              className={`text-xs ${p.onboarded ? "text-success" : "text-muted-foreground"}`}
+            <Badge
+              variant={p.onboarded ? "success" : "neutral"}
               title={p.onboarded ? `tier: ${p.businessContext.tier}` : "awaiting confirm"}
             >
               {p.onboarded ? "onboarded" : "in progress"}
-            </span>
+            </Badge>
           </li>
         ))}
       </ul>

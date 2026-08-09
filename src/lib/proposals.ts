@@ -38,10 +38,14 @@ export async function createProposal<T>(args: {
   return proposal;
 }
 
-export async function listProposals(filter?: { status?: ProposalStatus; kind?: ProposalKind }) {
+/** Terminal states — a decision has actually been made, one way or another. */
+export const DECIDED_STATUSES: ProposalStatus[] = ["approved", "rejected", "applied", "apply_failed"];
+
+export async function listProposals(filter?: { status?: ProposalStatus | ProposalStatus[]; kind?: ProposalKind }) {
   const db = await getDb();
+  const statuses = filter?.status === undefined ? undefined : Array.isArray(filter.status) ? filter.status : [filter.status];
   return db.data.proposals.filter(
-    (p) => (!filter?.status || p.status === filter.status) && (!filter?.kind || p.kind === filter.kind),
+    (p) => (!statuses || statuses.includes(p.status)) && (!filter?.kind || p.kind === filter.kind),
   );
 }
 

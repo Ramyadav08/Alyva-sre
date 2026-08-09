@@ -218,12 +218,47 @@ export type TrafficEdge = {
 };
 
 /**
+ * Real, live-confirmed failure mode (not a hypothetical): the dashboard's
+ * panels each poll independently every 5-15s (BusinessImpactPanel,
+ * TopLatencyPanel, RecommendationsRunner, etc.), and every one of them
+ * ultimately calls this function. On page load they all fire within the
+ * same tick — three concurrent callers each launching their own 80-trace
+ * batched fetch overlapped into ~30 simultaneous Tempo requests and every
+ * single one aborted on timeout (confirmed live against the shared stack).
+ * The batching fix alone (below) caps concurrency *within* one caller; it
+ * does nothing about *multiple* callers racing. The correct fix is request
+ * coalescing: concurrent/near-concurrent callers asking for the same
+ * (windowMinutes, traceLimit) share one real in-flight query and its
+ * result for a short TTL, instead of each re-querying Tempo from scratch.
+ * This doesn't change what's true (Observability) — it's the same live
+ * result, just not recomputed if it's under 20s old, matching the
+ * dashboard's own fastest poll interval so no panel ever sees data staler
+ * than it already tolerates by polling that slowly in the first place.
+ */
+const TRAFFIC_EDGES_CACHE_TTL_MS = 20_000;
+const trafficEdgesCache = new Map<string, { at: number; promise: Promise<TrafficEdge[]> }>();
+
+/**
  * Discovers real service-to-service call relationships + latency by walking
  * actual Tempo spans (not a hardcoded topology). This is the primary data
  * source for the dashboard's "top services by inter-service call latency"
  * panel, and for onboarding's dependency-graph discovery.
  */
 export async function getServiceTrafficEdges(windowMinutes = 60, traceLimit = 80): Promise<TrafficEdge[]> {
+  const cacheKey = `${windowMinutes}:${traceLimit}`;
+  const cached = trafficEdgesCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < TRAFFIC_EDGES_CACHE_TTL_MS) {
+    return cached.promise;
+  }
+  const promise = fetchServiceTrafficEdges(traceLimit);
+  trafficEdgesCache.set(cacheKey, { at: Date.now(), promise });
+  // A failed fetch should not poison the cache for the full TTL — let the
+  // next caller retry for real rather than replaying a known-bad result.
+  promise.catch(() => trafficEdgesCache.delete(cacheKey));
+  return promise;
+}
+
+async function fetchServiceTrafficEdges(traceLimit: number): Promise<TrafficEdge[]> {
   const traces = await searchTraces("", traceLimit);
   const edgeKey = (a: string, b: string) => `${a}→${b}`;
   const edges = new Map<string, TrafficEdge>();

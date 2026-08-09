@@ -6,19 +6,22 @@
  * recommendation/pr Proposals and whether the thing they claimed to fix
  * actually got better, not just "applied and forgotten." Progressive
  * disclosure: verdict badge up front, before/after evidence on demand.
+ * Rebuilt on shadcn/ui: Accordion for the list (no action buttons live
+ * below the toggle), Badge for the recovery verdict.
  */
 import { useEffect, useState } from "react";
 import type { Proposal } from "@/lib/models";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 
-const VERDICT_STYLE: Record<string, string> = {
-  recovered: "bg-success/10 text-success",
-  not_recovered: "bg-error/10 text-error",
-  inconclusive: "bg-muted text-muted-foreground",
+const VERDICT_VARIANT: Record<string, BadgeProps["variant"]> = {
+  recovered: "success",
+  not_recovered: "error",
+  inconclusive: "neutral",
 };
 
 export function AppliedFixesPanel() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     async function refresh() {
@@ -41,23 +44,24 @@ export function AppliedFixesPanel() {
       <h2 className="section-heading">
         Applied fixes <span className="text-muted-foreground">({proposals.length})</span>
       </h2>
-      <ul className="space-y-2">
+      <Accordion type="single" collapsible className="rounded-md border border-border bg-card px-3">
         {proposals.map((p) => {
-          const expanded = expandedId === p.id;
           const verdict = p.recoveryCheck?.verdict;
           return (
-            <li key={p.id} className="rounded border border-border bg-card p-3 text-sm">
-              <button className="flex w-full items-start justify-between gap-3 text-left" onClick={() => setExpandedId(expanded ? null : p.id)}>
-                <span>
-                  <span className="font-medium">{p.summary}</span>
-                  <span className="ml-2 font-mono text-xs text-muted-foreground">{p.serviceId}</span>
+            <AccordionItem key={p.id} value={p.id}>
+              <AccordionTrigger className="text-sm">
+                <span className="flex flex-1 items-start justify-between gap-3">
+                  <span>
+                    <span className="font-medium">{p.summary}</span>
+                    <span className="ml-2 font-mono text-xs text-muted-foreground">{p.serviceId}</span>
+                  </span>
+                  <Badge variant={verdict ? VERDICT_VARIANT[verdict] : "neutral"} className="shrink-0">
+                    {verdict ? verdict.replace(/_/g, " ") : "checking soon…"}
+                  </Badge>
                 </span>
-                <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${verdict ? VERDICT_STYLE[verdict] : "bg-muted text-muted-foreground"}`}>
-                  {verdict ? verdict.replace(/_/g, " ") : "checking soon…"}
-                </span>
-              </button>
-              {expanded && (
-                <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="space-y-2 text-xs text-muted-foreground">
                   <p>{p.rationale}</p>
                   {p.recoveryCheck && (
                     <>
@@ -69,11 +73,11 @@ export function AppliedFixesPanel() {
                     </>
                   )}
                 </div>
-              )}
-            </li>
+              </AccordionContent>
+            </AccordionItem>
           );
         })}
-      </ul>
+      </Accordion>
     </section>
   );
 }

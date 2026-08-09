@@ -4,10 +4,15 @@
  * Persisted custom panels — each re-queries its own live data on mount
  * and on a refresh interval, never replays the drafting-time snapshot.
  * Removable at any time (the plan's explicit requirement: kept panels
- * aren't permanent).
+ * aren't permanent). Rebuilt on shadcn/ui: Card, Button (Remove),
+ * Progress for ranking-shaped panel data — same treatment as
+ * CustomPanelChat's draft preview.
  */
 import { useEffect, useState } from "react";
 import type { DashboardPanelSpec } from "@/lib/models";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 
 function PanelData({ id }: { id: string }) {
   const [data, setData] = useState<unknown[] | null>(null);
@@ -34,9 +39,7 @@ function PanelData({ id }: { id: string }) {
         {rows.slice(0, 8).map((r, i) => (
           <li key={i} className="flex items-center gap-3 text-sm">
             <span className="w-40 truncate font-mono text-xs">{r.label}</span>
-            <div className="h-2 flex-1 rounded bg-muted">
-              <div className="h-2 rounded bg-brand" style={{ width: `${Math.max(4, (r.value / max) * 100)}%` }} />
-            </div>
+            <Progress value={(r.value / max) * 100} className="h-2 flex-1" />
             <span className="w-16 text-right font-mono text-xs">
               {r.value.toFixed(1)}{r.unit}
             </span>
@@ -80,17 +83,17 @@ export function CustomPanelsList() {
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       {panels.map((p) => (
-        <div key={p.id} className="surface-card">
-          <div className="flex items-center justify-between">
-            <h2 className="section-heading">{p.title}</h2>
-            <button className="btn-pill-ghost px-2 py-1 text-xs" onClick={() => remove(p.id)}>
+        <Card key={p.id}>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <CardTitle>{p.title}</CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => remove(p.id)}>
               Remove
-            </button>
-          </div>
-          <div className="mt-2">
+            </Button>
+          </CardHeader>
+          <CardContent className="pt-0">
             <PanelData id={p.id} />
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       ))}
     </div>
   );

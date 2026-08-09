@@ -5,9 +5,17 @@
  * command input (the Harvey/Legora-inspired layout language: one
  * confident input, generous whitespace, pill actions), not a form.
  * Drafts against real data, previews live, only persists on "Keep."
+ * Rebuilt on shadcn/ui for the draft preview (Card, Button, Progress for
+ * ranking-shaped previews) — the `.ask-bar` input itself is left as a
+ * plain `<input>`: it's a deliberate transparent/borderless design
+ * already matching the Perplexity/Linear reference, and dropping the
+ * bordered shadcn Input into it would fight that look rather than fit it.
  */
 import { useState } from "react";
 import type { Proposal } from "@/lib/models";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 
 export function CustomPanelChat({ onKept }: { onKept?: () => void }) {
   const [prompt, setPrompt] = useState("");
@@ -57,34 +65,30 @@ export function CustomPanelChat({ onKept }: { onKept?: () => void }) {
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
         />
-        <button
-          className="btn-pill-primary shrink-0 px-4 py-1.5 text-xs disabled:opacity-40"
-          onClick={submit}
-          disabled={status === "drafting" || !prompt.trim()}
-        >
+        <Button size="sm" className="shrink-0" onClick={submit} disabled={status === "drafting" || !prompt.trim()}>
           {status === "drafting" ? "Drafting…" : "Ask"}
-        </button>
+        </Button>
       </div>
       {error && <p className="text-xs text-error">{error}</p>}
 
       {draft && (
-        <div className="surface-card space-y-3">
-          <div className="flex items-start justify-between">
+        <Card>
+          <CardContent className="space-y-3 p-4">
             <div>
               <p className="section-heading">{draft.summary}</p>
               <p className="mt-1 text-sm text-muted-foreground">{draft.rationale}</p>
             </div>
-          </div>
-          <CustomPanelPreview payload={draft.payload as any} />
-          <div className="flex gap-2">
-            <button className="btn-pill-primary text-xs" onClick={() => decide("approved")}>
-              Keep on my dashboard
-            </button>
-            <button className="btn-pill-secondary text-xs" onClick={() => decide("rejected")}>
-              Discard
-            </button>
-          </div>
-        </div>
+            <CustomPanelPreview payload={draft.payload as any} />
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => decide("approved")}>
+                Keep on my dashboard
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => decide("rejected")}>
+                Discard
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
@@ -105,9 +109,7 @@ function CustomPanelPreview({ payload }: { payload: { title: string; previewData
         {rows.slice(0, 8).map((r, i) => (
           <li key={i} className="flex items-center gap-3 text-sm">
             <span className="w-40 truncate font-mono text-xs">{r.label}</span>
-            <div className="h-2 flex-1 rounded bg-muted">
-              <div className="h-2 rounded bg-brand" style={{ width: `${Math.max(4, (r.value / max) * 100)}%` }} />
-            </div>
+            <Progress value={(r.value / max) * 100} className="h-2 flex-1" />
             <span className="w-16 text-right font-mono text-xs">
               {r.value.toFixed(1)}{r.unit}
             </span>
