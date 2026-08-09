@@ -11,6 +11,8 @@ import { CustomPanelChat } from "@/components/CustomPanelChat";
 import { CustomPanelsList } from "@/components/CustomPanelsList";
 import { RecommendationsRunner } from "@/components/RecommendationsRunner";
 import { InvestigationsPanel } from "@/components/InvestigationsPanel";
+import { AppliedFixesPanel } from "@/components/AppliedFixesPanel";
+import { RecoveryCheckRunner } from "@/components/RecoveryCheckRunner";
 
 export default function DashboardPage() {
   return (
@@ -24,6 +26,7 @@ export default function DashboardPage() {
           <OnboardingRunner />
           <AlertRulesRunner />
           <RecommendationsRunner />
+          <RecoveryCheckRunner />
         </div>
       </header>
       <div className="mx-auto max-w-5xl space-y-8 px-6 py-8">
@@ -47,6 +50,7 @@ export default function DashboardPage() {
 
         <ProposalReviewList kind="recommendation" title="Recommendations" />
         <ProposalReviewList kind="pr" title="Suggested code fixes" />
+        <AppliedFixesPanel />
 
         <OnboardedServices />
       </div>

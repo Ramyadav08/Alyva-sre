@@ -54,6 +54,22 @@ export type ProposalHistoryEntry = {
   note?: string;
 };
 
+/**
+ * Rung 5 of the hackathon's own judging ladder ("Fixes it, with you in the
+ * loop") requires propose → approve/reject/modify → execute → *verified
+ * recovery* — the last step nothing in either this app or the plain-JS
+ * skills actually did before this. Only meaningful for kinds that claim to
+ * fix a real observed problem (recommendation/pr); alert_rule/
+ * profile_field/dashboard_panel don't "recover," they just take effect.
+ */
+export type RecoveryCheck = {
+  checkedAt: string;
+  verdict: "recovered" | "not_recovered" | "inconclusive";
+  beforeEvidence: EvidenceRef[];
+  afterEvidence: EvidenceRef[];
+  note: string;
+};
+
 export type Proposal<TPayload = unknown> = {
   id: string;
   kind: ProposalKind;
@@ -71,6 +87,7 @@ export type Proposal<TPayload = unknown> = {
   updatedAt: string;
   appliedEntityId?: string;
   applyError?: string;
+  recoveryCheck?: RecoveryCheck;
 };
 
 export type Question = {
