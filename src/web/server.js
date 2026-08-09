@@ -12,6 +12,7 @@ const { buildServiceGraph } = require("../dashboard/serviceGraph");
 const { buildBusinessImpactSummary } = require("../dashboard/businessImpact");
 const { buildRecommendations } = require("../dashboard/recommendations");
 const customPanel = require("../dashboard/customPanel");
+const traceExplorer = require("../dashboard/traceExplorer");
 
 const app = express();
 app.use(express.json());
@@ -135,6 +136,25 @@ app.post("/api/dashboard/custom-panel/:id/refresh", async (req, res) => {
   if (!panel) return res.status(404).json({ ok: false, error: "No such panel" });
   const data = await customPanel.executePanelSpec(panel);
   res.json({ ok: true, data });
+});
+
+// Standalone trace explorer — independent of any investigation.
+app.get("/api/dashboard/traces", async (req, res) => {
+  try {
+    const traces = await traceExplorer.searchRecentTraces(req.query.service, Number(req.query.limit) || 10);
+    res.json({ ok: true, traces });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post("/api/dashboard/traces/:traceId/ask", async (req, res) => {
+  try {
+    const result = await traceExplorer.askAboutTrace(req.params.traceId, req.body.question);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // Ownership: opens a real PR for a code fix. Only runs on explicit human

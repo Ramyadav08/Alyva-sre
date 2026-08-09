@@ -129,6 +129,25 @@
     <div id="recommendations"></div>
   </section>
 
+  <section id="trace-explorer-section">
+    <h2>Ask AI about a trace</h2>
+    <div class="panel-chat">
+      <input type="text" id="trace-service-input" placeholder="Service name — e.g. checkout" style="max-width:200px;" />
+      <button id="trace-search-btn">Find recent traces</button>
+    </div>
+    <div id="trace-list"></div>
+    <div id="trace-qa" style="display:none;">
+      <div class="card">
+        <div class="row"><b>Trace: <span id="trace-qa-id"></span></b><button id="trace-qa-close">&times;</button></div>
+        <div class="panel-chat" style="margin-top:0.6rem;">
+          <input type="text" id="trace-question-input" placeholder="Ask a question about this trace..." />
+          <button class="primary" id="trace-ask-btn">Ask</button>
+        </div>
+        <div id="trace-answer"></div>
+      </div>
+    </div>
+  </section>
+
   <section id="custom-panels-section">
     <h2>Custom panels</h2>
     <div class="panel-chat">
@@ -225,6 +244,66 @@ function renderRecommendations(rec) {
     </div>
   `).join('');
 }
+
+// ---- Trace explorer ----
+
+document.getElementById('trace-search-btn').addEventListener('click', async () => {
+  const service = document.getElementById('trace-service-input').value;
+  if (!service) return;
+  const listEl = document.getElementById('trace-list');
+  listEl.innerHTML = '<div class="empty">Searching...</div>';
+  try {
+    const result = await api(`/api/dashboard/traces?service=${encodeURIComponent(service)}&limit=8`);
+    if (!result.traces.length) { listEl.innerHTML = '<div class="empty">No recent traces found for that service.</div>'; return; }
+    listEl.innerHTML = result.traces.map(t => `
+      <div class="card" style="padding:0.6rem 1rem;">
+        <div class="row">
+          <span style="font-family:ui-monospace,monospace; font-size:0.8rem;">${escapeHtml(t.trace_id)}</span>
+          <button data-trace="${t.trace_id}" class="open-trace-btn">Ask about this trace</button>
+        </div>
+        <div style="font-size:0.8rem; color:var(--muted);">${escapeHtml(t.root_trace_name || '')} — ${fmt(t.duration_ms)}ms</div>
+      </div>
+    `).join('');
+    listEl.querySelectorAll('.open-trace-btn').forEach(b => b.addEventListener('click', () => openTraceQA(b.dataset.trace)));
+  } catch (e) {
+    listEl.innerHTML = `<div class="empty">Error: ${escapeHtml(e.message)}</div>`;
+  }
+});
+
+let currentTraceId = null;
+
+function openTraceQA(traceId) {
+  currentTraceId = traceId;
+  document.getElementById('trace-qa-id').textContent = traceId;
+  document.getElementById('trace-answer').innerHTML = '';
+  document.getElementById('trace-qa').style.display = 'block';
+}
+document.getElementById('trace-qa-close').addEventListener('click', () => {
+  document.getElementById('trace-qa').style.display = 'none';
+  currentTraceId = null;
+});
+
+async function askAboutCurrentTrace() {
+  const input = document.getElementById('trace-question-input');
+  if (!input.value || !currentTraceId) return;
+  const answerEl = document.getElementById('trace-answer');
+  answerEl.innerHTML = '<div class="empty">Thinking...</div>';
+  try {
+    const result = await api(`/api/dashboard/traces/${currentTraceId}/ask`, { method: 'POST', body: JSON.stringify({ question: input.value }) });
+    const a = result.answer;
+    answerEl.innerHTML = `
+      <div class="rationale">${escapeHtml(a.answer)}</div>
+      <div style="font-size:0.75rem; color:var(--muted); margin-top:0.3rem;">confidence: ${escapeHtml(a.confidence)}</div>
+      ${result.ledger.length ? `<details style="margin-top:0.4rem;"><summary>${result.ledger.length} additional tool call(s) made</summary>
+        <div class="evidence">${result.ledger.map(e => `${e.tool}(${JSON.stringify(e.args)})`).join('\n')}</div></details>` : ''}
+    `;
+    input.value = '';
+  } catch (e) {
+    answerEl.innerHTML = `<div class="empty">Error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+document.getElementById('trace-ask-btn').addEventListener('click', askAboutCurrentTrace);
+document.getElementById('trace-question-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') askAboutCurrentTrace(); });
 
 let currentDraftSpec = null;
 
