@@ -2,7 +2,7 @@
 
 ## Team + members
 
-**team-1** — Avi Bhardwaj, Ramrekha Yadav
+**team-1** — Ramrekha Yadav, Prafful Shukla, Avi Bhardwaj
 
 ## One-line pitch
 
